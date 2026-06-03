@@ -67,6 +67,18 @@ public enum ErrorCode {
     FILE_DOWNLOAD_FAILED(12008, "file download failed"),
     FILE_BIND_INVALID(12009, "file binding invalid"),
 
+    USER_NOT_FOUND(13001, "user not found"),
+    USER_DUPLICATED(13002, "username already exists"),
+    USER_STATUS_INVALID(13003, "user status invalid"),
+    USER_PASSWORD_INVALID(13004, "password invalid"),
+
+    LITERATURE_CATEGORY_NOT_FOUND(14001, "literature category not found"),
+    LITERATURE_CATEGORY_DUPLICATED(14002, "literature category duplicated"),
+    LITERATURE_NOT_FOUND(14101, "literature not found"),
+    LITERATURE_ACCESS_DENIED(14102, "literature access denied"),
+    LITERATURE_STATUS_INVALID(14103, "literature status invalid"),
+    LITERATURE_FILE_INVALID(14104, "literature file invalid"),
+
     GROWTH_REWARD_DUPLICATED(20001, "growth reward duplicated"),
     GROWTH_POINTS_NOT_ENOUGH(20002, "growth points not enough"),
 

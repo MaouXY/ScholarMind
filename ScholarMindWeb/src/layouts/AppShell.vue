@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DataBoard, HomeFilled, Setting, Tools } from '@element-plus/icons-vue'
+import {
+  Collection,
+  DataAnalysis,
+  Management,
+  Reading,
+  Expand,
+  Fold,
+} from '@element-plus/icons-vue'
 
 import AppSidebar from '@/components/AppSidebar.vue'
 import { useAppStore } from '@/stores/app'
@@ -14,41 +21,41 @@ const authStore = useAuthStore()
 
 const menus = computed(() => [
   {
-    title: '业务分区',
+    title: '学生空间',
     items: [
       {
-        label: '工作区 A',
-        path: '/operator/workspace',
-        icon: HomeFilled,
-        role: 'operator',
+        label: '文献检索与阅读',
+        path: '/student/library',
+        icon: Reading,
+        role: 'STUDENT',
       },
     ],
   },
   {
-    title: '协作分区',
+    title: '教师空间',
     items: [
       {
-        label: '工作区 B',
-        path: '/reviewer/workspace',
-        icon: Tools,
-        role: 'reviewer',
+        label: '阅读指导台',
+        path: '/teacher/review',
+        icon: Collection,
+        role: 'TEACHER',
       },
     ],
   },
   {
-    title: '平台管理',
+    title: '平台治理',
     items: [
       {
         label: '管理中心',
         path: '/admin/dashboard',
-        icon: Setting,
-        role: 'admin',
+        icon: Management,
+        role: 'ADMIN',
       },
       {
-        label: '分析概览',
+        label: '数据总览',
         path: '/analytics/overview',
-        icon: DataBoard,
-        role: 'admin',
+        icon: DataAnalysis,
+        role: 'ADMIN',
       },
     ],
   },
@@ -61,7 +68,7 @@ function handleLogout() {
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ 'shell--collapsed': appStore.sidebarCollapsed }">
     <AppSidebar
       :collapsed="appStore.sidebarCollapsed"
       :menus="menus"
@@ -70,14 +77,19 @@ function handleLogout() {
     />
     <div class="shell__main">
       <header class="shell__header">
-        <div>
-          <p class="shell__eyebrow">App Template</p>
-          <h1>{{ route.meta.title }}</h1>
+        <div class="shell__header-left">
+          <el-button class="sidebar-toggle-btn" plain @click="appStore.toggleSidebar()">
+            <el-icon>
+              <Expand v-if="appStore.sidebarCollapsed" />
+              <Fold v-else />
+            </el-icon>
+          </el-button>
+          <div>
+            <p class="shell__eyebrow">ScholarMind Spatial Workspace</p>
+            <h1>{{ route.meta.title }}</h1>
+          </div>
         </div>
         <div class="shell__actions">
-          <el-button plain @click="appStore.toggleSidebar()">
-            {{ appStore.sidebarCollapsed ? '展开导航' : '收起导航' }}
-          </el-button>
           <el-dropdown>
             <span class="shell__user">
               {{ authStore.displayName }}
@@ -86,7 +98,7 @@ function handleLogout() {
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item @click="handleLogout">
-                  Sign out
+                  退出登录
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>

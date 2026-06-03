@@ -3,7 +3,12 @@ package com.maou.apptemplateapi.common.enums;
 import java.util.Arrays;
 
 public enum UserRole {
-    ADMIN;
+    STUDENT,
+    TEACHER,
+    ADMIN,
+    WORKER,
+    OPERATOR,
+    REVIEWER;
 
     public static UserRole fromCode(String code) {
         return Arrays.stream(values())

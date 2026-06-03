@@ -12,21 +12,38 @@ const route = useRoute()
 const submitting = ref(false)
 
 const form = reactive<LoginForm>({
-  username: 'demo',
+  username: 'student01',
   password: '123456',
-  role: 'operator',
+  role: 'STUDENT',
 })
+
+function applyRoleDefaults() {
+  if (form.role === 'ADMIN') {
+    form.username = 'admin'
+  } else if (form.role === 'TEACHER') {
+    form.username = 'teacher01'
+  } else {
+    form.username = 'student01'
+  }
+}
 
 async function handleLogin() {
   submitting.value = true
   try {
     await authStore.login(form)
-    ElMessage.success('Login successful')
+    ElMessage.success('登录成功')
     const redirect =
       typeof route.query.redirect === 'string'
         ? route.query.redirect
         : authStore.defaultRoute
     await router.push(redirect)
+  } catch (error) {
+    console.error(
+      'login failed, scenario=auth-login, username=%s, role=%s',
+      form.username,
+      form.role,
+      error,
+    )
   } finally {
     submitting.value = false
   }
@@ -36,51 +53,47 @@ async function handleLogin() {
 <template>
   <div class="login-page">
     <section class="login-hero">
-      <p class="login-hero__eyebrow">Stage 0</p>
-      <h1>Reusable frontend workspace</h1>
+      <p class="login-hero__eyebrow">Stage 2 Platform</p>
+      <h1>ScholarMind</h1>
       <p class="login-hero__text">
-        Vue 3, Element Plus, Pinia, Router, Axios, and ECharts are wired in and
-        ready to support a different business theme without rebuilding the
-        shell.
+        面向毕业论文与科研学习场景的 AI 文献检索、精读、摘要和知识库管理工作台。
       </p>
-      <div class="login-hero__chips">
-        <span>Workspace A</span>
-        <span>Workspace B</span>
-        <span>Admin Center</span>
-        <span>Analytics</span>
+      <div class="login-hero__chips" aria-label="平台能力">
+        <span>语义检索</span>
+        <span>论文精读</span>
+        <span>阅读笔记</span>
+        <span>知识库治理</span>
       </div>
     </section>
 
-    <section class="login-card">
+    <section class="login-card" aria-label="登录表单">
       <div class="login-card__header">
-        <h2>Account sign in</h2>
-        <p>
-          Stage 0 uses local mock auth so the shell can be reused before real
-          API integration.
-        </p>
+        <h2>进入平台</h2>
+        <p>使用演示账号或后端真实账号登录。</p>
       </div>
 
       <el-form label-position="top" @submit.prevent="handleLogin">
-        <el-form-item label="Role">
+        <el-form-item label="角色">
           <el-segmented
             v-model="form.role"
             :options="[
-              { label: 'Operator', value: 'operator' },
-              { label: 'Reviewer', value: 'reviewer' },
-              { label: 'Admin', value: 'admin' },
+              { label: '学生', value: 'STUDENT' },
+              { label: '教师', value: 'TEACHER' },
+              { label: '管理员', value: 'ADMIN' },
             ]"
             block
+            @change="applyRoleDefaults"
           />
         </el-form-item>
-        <el-form-item label="Username">
-          <el-input v-model="form.username" placeholder="Enter username" />
+        <el-form-item label="用户名">
+          <el-input v-model="form.username" placeholder="请输入用户名" />
         </el-form-item>
-        <el-form-item label="Password">
+        <el-form-item label="密码">
           <el-input
             v-model="form.password"
             type="password"
             show-password
-            placeholder="Enter password"
+            placeholder="请输入密码"
           />
         </el-form-item>
         <el-button
@@ -89,7 +102,7 @@ async function handleLogin() {
           :loading="submitting"
           @click="handleLogin"
         >
-          Enter workspace
+          进入工作台
         </el-button>
       </el-form>
     </section>

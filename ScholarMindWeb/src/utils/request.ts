@@ -26,7 +26,11 @@ request.interceptors.request.use((config) => {
 request.interceptors.response.use(
   (response) => {
     const payload = response.data as ApiResponse<unknown>
-    if (typeof payload?.code === 'number' && payload.code !== 200) {
+    if (
+      typeof payload?.code === 'number' &&
+      payload.code !== 0 &&
+      payload.code !== 200
+    ) {
       ElMessage.error(payload.message || '请求失败')
       return Promise.reject(payload)
     }
@@ -35,9 +39,17 @@ request.interceptors.response.use(
   (error) => {
     const status = error?.response?.status
     if (status === 401) {
-      clearToken()
-      ElMessage.error('登录已失效，请重新登录')
-      router.push('/login')
+      if (import.meta.env.VITE_USE_MOCK_AUTH === 'true') {
+        console.error(
+          'request unauthorized in mock mode, scenario=http-unauthorized-mock, url=%s',
+          error?.config?.url,
+          error,
+        )
+      } else {
+        clearToken()
+        ElMessage.error('登录已失效，请重新登录')
+        router.push('/login')
+      }
     } else {
       ElMessage.error(
         error?.response?.data?.message || error.message || '网络异常',
