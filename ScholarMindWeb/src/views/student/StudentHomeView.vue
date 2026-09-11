@@ -1,41 +1,78 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  ChatLineRound,
+  CollectionTag,
+  Connection,
+  Cpu,
+  DataAnalysis,
   DocumentAdd,
   EditPen,
+  MagicStick,
+  Notebook,
   Reading,
+  Refresh,
   Search,
+  Star,
+  StarFilled,
   UploadFilled,
 } from '@element-plus/icons-vue'
 
 import {
+  askLiteratureQuestion,
+  compareLiteratures,
   createLiterature,
+  createReadingNote,
+  deleteReadingNote,
+  favoriteLiterature,
+  generateLiteratureSummary,
+  getLiteratureView,
   listCategories,
+  listLiteratureQaRecords,
   listLiteratures,
+  listReadingNotes,
   markLiteratureRead,
+  naturalLanguageSearch,
+  rebuildLiteratureIndex,
+  saveReadingHistory,
+  semanticSearch,
   submitLiterature,
+  unfavoriteLiterature,
   updateLiterature,
+  updateReadingNote,
   uploadLiteratureFile,
 } from '@/api/literature'
+import { displayCategoryName } from '@/utils/format'
 import type {
+  Id,
   Literature,
   LiteratureCategory,
+  LiteratureCompareResult,
+  LiteratureDetail,
+  LiteratureIndexResult,
   LiteraturePayload,
+  LiteratureQuestionResult,
+  LiteratureReferenceChunk,
+  LiteratureSearchResult,
+  LiteratureSummaryResult,
   LiteratureStatus,
   LiteratureVisibility,
+  ReadingHistory,
+  ReadingNote,
+  ReadingNotePayload,
 } from '@/types/literature'
 
 const demoLiteratures: Literature[] = [
   {
-    id: 1200000000000000001,
+    id: '1200000000000000001',
     title: 'Research on Intelligent Recommendation Service in University Digital Library',
     author: 'Li Ming',
     source: 'Library Information Service',
     publishYear: 2024,
     language: 'zh-CN',
     categoryName: 'Recommendation System',
-    uploaderId: 1000000000000000003,
+    uploaderId: '1000000000000000003',
     visibility: 'PUBLIC',
     status: 'PUBLISHED',
     abstractText:
@@ -47,14 +84,14 @@ const demoLiteratures: Literature[] = [
     downloadCount: 8,
   },
   {
-    id: 1200000000000000002,
+    id: '1200000000000000002',
     title: 'Semantic Retrieval Method for Academic Literature Based on User Intent',
     author: 'Wang Qian',
     source: 'Modern Information',
     publishYear: 2023,
     language: 'zh-CN',
     categoryName: 'Information Retrieval',
-    uploaderId: 1000000000000000003,
+    uploaderId: '1000000000000000003',
     visibility: 'PUBLIC',
     status: 'PUBLISHED',
     abstractText:
@@ -67,21 +104,77 @@ const demoLiteratures: Literature[] = [
   },
 ]
 
+const demoNotes: ReadingNote[] = [
+  {
+    id: 9000000000000000001,
+    literatureId: '1200000000000000001',
+    title: '可复用模块',
+    content: '推荐系统部分可以抽象为关键词召回、行为权重、混合排序三个模块。',
+    aiGenerated: 0,
+  },
+  {
+    id: 9000000000000000002,
+    literatureId: '1200000000000000001',
+    title: 'AI 解析建议',
+    content: '适合用作“个性化资源推荐”章节的相关工作，对比用户行为和内容相似度。',
+    aiGenerated: 1,
+  },
+]
+
+const demoReferences: LiteratureReferenceChunk[] = [
+  {
+    id: '9100000000000000001',
+    literatureId: '1200000000000000001',
+    chunkIndex: 1,
+    content:
+      'The hybrid recommendation workflow combines keyword matching with behavior signals to reduce cold-start friction in digital library services.',
+    score: 0.91,
+  },
+  {
+    id: '9100000000000000002',
+    literatureId: '1200000000000000002',
+    chunkIndex: 3,
+    content:
+      'Natural language intent parsing maps student questions into topic, method, object and constraint fields before retrieval.',
+    score: 0.86,
+  },
+]
+
 const categories = ref<LiteratureCategory[]>([])
 const literatures = ref<Literature[]>([])
 const selected = ref<Literature | null>(null)
+const detail = ref<LiteratureDetail | null>(null)
+const notes = ref<ReadingNote[]>([])
+const selectedNote = ref<ReadingNote | null>(null)
+const searchInsight = ref<LiteratureSearchResult | null>(null)
+const indexResult = ref<LiteratureIndexResult | null>(null)
+const summaryResult = ref<LiteratureSummaryResult | null>(null)
+const qaRecords = ref<LiteratureQuestionResult[]>([])
+const activeAnswer = ref<LiteratureQuestionResult | null>(null)
+const compareResult = ref<LiteratureCompareResult | null>(null)
 const loading = ref(false)
+const detailLoading = ref(false)
 const saving = ref(false)
 const uploading = ref(false)
+const noteSaving = ref(false)
+const historySaving = ref(false)
+const ragSearching = ref(false)
+const indexBuilding = ref(false)
+const summaryLoading = ref(false)
+const qaLoading = ref(false)
+const qaHistoryLoading = ref(false)
+const compareLoading = ref(false)
 const editorVisible = ref(false)
+const noteDrawerVisible = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
-const readerNotes = ref('')
+const noteMode = ref<'create' | 'edit'>('create')
+const favorited = ref(false)
 
 const query = reactive({
   page: 1,
   size: 8,
   keyword: '',
-  categoryId: undefined as number | undefined,
+  categoryId: undefined as Id | undefined,
   status: undefined as LiteratureStatus | undefined,
   visibility: undefined as LiteratureVisibility | undefined,
 })
@@ -99,19 +192,74 @@ const form = reactive<LiteraturePayload>({
   keywords: '',
 })
 
+const readingState = reactive({
+  lastPage: 1,
+  progress: 18,
+  readDuration: 12,
+})
+
+const ragForm = reactive({
+  mode: 'natural' as 'natural' | 'semantic',
+  query: '帮我找出适合构建 AI 文献检索助手的研究方法',
+  limit: 5,
+})
+
+const qaForm = reactive({
+  question: '这篇论文的研究问题、方法和可复用模块分别是什么？',
+  limit: 4,
+})
+
+const noteForm = reactive<ReadingNotePayload>({
+  literatureId: '',
+  title: '',
+  content: '',
+  aiGenerated: 0,
+})
+
 const total = ref(0)
 
+const currentLiterature = computed(() => detail.value?.literature ?? selected.value)
+
+const compareIds = computed(() =>
+  literatures.value
+    .slice(0, 3)
+    .map((item) => item.id)
+    .filter((id, index, ids) => ids.indexOf(id) === index),
+)
+
 const keywordTokens = computed(() =>
-  (selected.value?.keywords ?? '')
+  (currentLiterature.value?.keywords ?? '')
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean),
 )
 
-const readingProgress = computed(() => {
-  const readCount = selected.value?.readCount ?? 0
-  return Math.min(92, Math.max(18, readCount * 2))
+const parseSignals = computed(() => {
+  const item = currentLiterature.value
+  return [
+    { label: '元数据', value: item?.author || item?.source ? '已解析' : '待补全' },
+    { label: '摘要', value: item?.abstractText ? '已提取' : '待解析' },
+    { label: '向量索引', value: indexResult.value?.chunkCount ? `${indexResult.value.chunkCount} 块` : '可重建' },
+    { label: 'RAG 引用', value: activeAnswer.value?.references?.length ? `${activeAnswer.value.references.length} 条` : '待提问' },
+  ]
 })
+
+const outlineItems = computed(() => [
+  {
+    title: '研究问题',
+    content: currentLiterature.value?.abstractText
+      ? '从摘要中定位研究对象、用户需求与问题边界。'
+      : '等待解析摘要后自动提炼研究问题。',
+  },
+  {
+    title: '方法路径',
+    content: '拆解模型、系统流程、检索策略或推荐策略，标注可以复用到系统设计的部分。',
+  },
+  {
+    title: '证据材料',
+    content: '记录数据来源、实验指标、对比方法和作者给出的局限性。',
+  },
+])
 
 function statusLabel(status?: LiteratureStatus) {
   const labels: Record<LiteratureStatus, string> = {
@@ -127,6 +275,12 @@ function visibilityLabel(visibility?: LiteratureVisibility) {
   if (visibility === 'PUBLIC') return '公开'
   if (visibility === 'PRIVATE') return '私有'
   return '全部'
+}
+
+function hydrateHistory(history?: ReadingHistory | null) {
+  readingState.lastPage = history?.lastPage ?? 1
+  readingState.progress = history?.progress ?? Math.min(92, Math.max(18, (currentLiterature.value?.readCount ?? 0) * 2))
+  readingState.readDuration = history?.readDuration ?? 12
 }
 
 function resetForm() {
@@ -159,15 +313,35 @@ function fillForm(item: Literature) {
   })
 }
 
+function resetNoteForm() {
+  Object.assign(noteForm, {
+    literatureId: currentLiterature.value?.id ?? '',
+    title: '',
+    content: '',
+    aiGenerated: 0,
+  })
+  selectedNote.value = null
+}
+
+function fillNoteForm(note: ReadingNote) {
+  selectedNote.value = note
+  Object.assign(noteForm, {
+    literatureId: note.literatureId,
+    title: note.title,
+    content: note.content,
+    aiGenerated: note.aiGenerated ?? 0,
+  })
+}
+
 async function fetchCategories() {
   try {
     categories.value = await listCategories()
   } catch (error) {
     console.error('category load failed, scenario=literature-category-list', error)
     categories.value = [
-      { id: 1100000000000000001, name: 'Digital Library', sort: 10, status: 1 },
-      { id: 1100000000000000002, name: 'Information Retrieval', sort: 20, status: 1 },
-      { id: 1100000000000000003, name: 'Artificial Intelligence', sort: 30, status: 1 },
+      { id: '1100000000000000001', name: 'Digital Library', sort: 10, status: 1 },
+      { id: '1100000000000000002', name: 'Information Retrieval', sort: 20, status: 1 },
+      { id: '1100000000000000003', name: 'Artificial Intelligence', sort: 30, status: 1 },
     ]
   }
 }
@@ -179,7 +353,7 @@ async function fetchLiteratures() {
     literatures.value = result.items
     total.value = result.total
     if (!selected.value && result.items.length > 0) {
-      selected.value = result.items[0]
+      await chooseLiterature(result.items[0])
     }
   } catch (error) {
     console.error(
@@ -191,23 +365,139 @@ async function fetchLiteratures() {
     )
     literatures.value = demoLiteratures
     total.value = demoLiteratures.length
-    selected.value = selected.value ?? demoLiteratures[0]
+    if (!selected.value) {
+      await chooseLiterature(demoLiteratures[0])
+    }
   } finally {
     loading.value = false
   }
 }
 
-async function chooseLiterature(item: Literature) {
-  selected.value = item
-  readerNotes.value = ''
+async function runRagSearch() {
+  if (!ragForm.query.trim()) {
+    ElMessage.warning('请输入语义检索问题')
+    return
+  }
+
+  ragSearching.value = true
   try {
-    selected.value = await markLiteratureRead(item.id)
+    const payload = {
+      query: ragForm.query,
+      categoryId: query.categoryId,
+      limit: ragForm.limit,
+    }
+    const result =
+      ragForm.mode === 'semantic'
+        ? await semanticSearch(payload)
+        : await naturalLanguageSearch(payload)
+    searchInsight.value = result
+    literatures.value = result.literatures
+    total.value = result.literatures.length
+    if (result.literatures.length > 0) {
+      await chooseLiterature(result.literatures[0])
+    }
+    ElMessage.success('RAG 检索完成')
   } catch (error) {
     console.error(
-      'read count failed, scenario=literature-read, literatureId=%s',
+      'rag search failed, scenario=literature-rag-search, mode=%s, query=%s, categoryId=%s, limit=%s',
+      ragForm.mode,
+      ragForm.query,
+      query.categoryId,
+      ragForm.limit,
+      error,
+    )
+    searchInsight.value = {
+      query: ragForm.query,
+      literatures: demoLiteratures,
+      references: demoReferences,
+      parsedIntent: '演示模式：意图拆解为主题=AI 文献检索助手，方法=语义检索/RAG，目标=找到可复用设计。',
+    }
+    literatures.value = demoLiteratures
+    total.value = demoLiteratures.length
+    if (!selected.value) {
+      await chooseLiterature(demoLiteratures[0])
+    }
+  } finally {
+    ragSearching.value = false
+  }
+}
+
+async function fetchNotes(literatureId: Id) {
+  try {
+    const result = await listReadingNotes({ literatureId, page: 1, size: 20 })
+    notes.value = result.items
+  } catch (error) {
+    console.error(
+      'reading notes list failed, scenario=reading-note-list, literatureId=%s',
+      literatureId,
+      error,
+    )
+    notes.value = demoNotes.filter((note) => note.literatureId === literatureId)
+  }
+}
+
+async function chooseLiterature(item: Literature) {
+  selected.value = item
+  indexResult.value = null
+  activeAnswer.value = null
+  summaryResult.value = null
+  detailLoading.value = true
+  try {
+    const response = await getLiteratureView(item.id)
+    detail.value = response
+    selected.value = response.literature
+    favorited.value = response.favorited
+    notes.value = response.recentNotes ?? []
+    hydrateHistory(response.readingHistory)
+    await markLiteratureRead(item.id)
+    await fetchNotes(item.id)
+  } catch (error) {
+    console.error(
+      'literature detail view failed, scenario=literature-detail-view, literatureId=%s',
       item.id,
       error,
     )
+    detail.value = {
+      literature: item,
+      favorited: false,
+      readingHistory: null,
+      recentNotes: demoNotes.filter((note) => note.literatureId === item.id),
+    }
+    favorited.value = false
+    notes.value = detail.value.recentNotes
+    hydrateHistory(null)
+  } finally {
+    detailLoading.value = false
+    await fetchQaHistory(item.id)
+  }
+}
+
+async function fetchQaHistory(literatureId: Id) {
+  qaHistoryLoading.value = true
+  try {
+    qaRecords.value = await listLiteratureQaRecords({
+      literatureId,
+      page: 1,
+      size: 8,
+    })
+  } catch (error) {
+    console.error(
+      'qa history load failed, scenario=literature-qa-history, literatureId=%s',
+      literatureId,
+      error,
+    )
+    qaRecords.value = [
+      {
+        recordId: '9200000000000000001',
+        literatureId,
+        question: qaForm.question,
+        answer:
+          '演示回答：这篇文献可以从研究问题、检索意图建模、混合召回策略和用户行为反馈四个维度拆解，并把方法部分复用到 ScholarMind 的 RAG 检索链路。',
+        references: demoReferences.filter((item) => item.literatureId === literatureId),
+      },
+    ]
+  } finally {
+    qaHistoryLoading.value = false
   }
 }
 
@@ -218,10 +508,29 @@ function openCreate() {
 }
 
 function openEdit() {
-  if (!selected.value) return
+  if (!currentLiterature.value) return
   editorMode.value = 'edit'
-  fillForm(selected.value)
+  fillForm(currentLiterature.value)
   editorVisible.value = true
+}
+
+function openNoteCreate(aiGenerated = 0) {
+  if (!currentLiterature.value) return
+  noteMode.value = 'create'
+  resetNoteForm()
+  noteForm.literatureId = currentLiterature.value.id
+  noteForm.aiGenerated = aiGenerated
+  if (aiGenerated) {
+    noteForm.title = 'AI 解析笔记'
+    noteForm.content = `围绕《${currentLiterature.value.title}》记录研究问题、核心方法、证据材料和可复用模块。`
+  }
+  noteDrawerVisible.value = true
+}
+
+function openNoteEdit(note: ReadingNote) {
+  noteMode.value = 'edit'
+  fillNoteForm(note)
+  noteDrawerVisible.value = true
 }
 
 async function saveLiterature() {
@@ -233,18 +542,19 @@ async function saveLiterature() {
   saving.value = true
   try {
     const saved =
-      editorMode.value === 'edit' && selected.value
-        ? await updateLiterature(selected.value.id, form)
+      editorMode.value === 'edit' && currentLiterature.value
+        ? await updateLiterature(currentLiterature.value.id, form)
         : await createLiterature(form)
     selected.value = saved
     editorVisible.value = false
     ElMessage.success('文献已保存')
     await fetchLiteratures()
+    await chooseLiterature(saved)
   } catch (error) {
     console.error(
       'literature save failed, scenario=literature-save, mode=%s, literatureId=%s, title=%s',
       editorMode.value,
-      selected.value?.id,
+      currentLiterature.value?.id,
       form.title,
       error,
     )
@@ -254,15 +564,241 @@ async function saveLiterature() {
 }
 
 async function submitCurrent() {
-  if (!selected.value) return
+  if (!currentLiterature.value) return
   try {
-    selected.value = await submitLiterature(selected.value.id)
+    selected.value = await submitLiterature(currentLiterature.value.id)
     ElMessage.success('已提交审核')
     await fetchLiteratures()
   } catch (error) {
     console.error(
       'literature submit failed, scenario=literature-submit, literatureId=%s',
-      selected.value.id,
+      currentLiterature.value.id,
+      error,
+    )
+  }
+}
+
+async function toggleFavorite() {
+  if (!currentLiterature.value) return
+  const literatureId = currentLiterature.value.id
+  try {
+    if (favorited.value) {
+      await unfavoriteLiterature(literatureId)
+      favorited.value = false
+      ElMessage.success('已取消收藏')
+    } else {
+      await favoriteLiterature(literatureId)
+      favorited.value = true
+      ElMessage.success('已收藏')
+    }
+  } catch (error) {
+    console.error(
+      'favorite toggle failed, scenario=literature-favorite-toggle, literatureId=%s, favorited=%s',
+      literatureId,
+      favorited.value,
+      error,
+    )
+  }
+}
+
+async function syncReadingHistory() {
+  if (!currentLiterature.value) return
+  historySaving.value = true
+  try {
+    const history = await saveReadingHistory(currentLiterature.value.id, {
+      lastPage: readingState.lastPage,
+      progress: readingState.progress,
+      readDuration: readingState.readDuration,
+    })
+    detail.value = detail.value
+      ? { ...detail.value, readingHistory: history }
+      : detail.value
+    ElMessage.success('阅读进度已同步')
+  } catch (error) {
+    console.error(
+      'reading history save failed, scenario=reading-history-upsert, literatureId=%s, lastPage=%s, progress=%s, readDuration=%s',
+      currentLiterature.value.id,
+      readingState.lastPage,
+      readingState.progress,
+      readingState.readDuration,
+      error,
+    )
+  } finally {
+    historySaving.value = false
+  }
+}
+
+async function rebuildCurrentIndex() {
+  if (!currentLiterature.value) return
+  const literatureId = currentLiterature.value.id
+  indexBuilding.value = true
+  try {
+    indexResult.value = await rebuildLiteratureIndex(literatureId)
+    ElMessage.success(`索引已重建，生成 ${indexResult.value.chunkCount} 个分块`)
+  } catch (error) {
+    console.error(
+      'literature index rebuild failed, scenario=literature-index-rebuild, literatureId=%s',
+      literatureId,
+      error,
+    )
+    indexResult.value = {
+      literatureId,
+      chunkCount: 6,
+      parseStatus: 'DEMO_READY',
+    }
+  } finally {
+    indexBuilding.value = false
+  }
+}
+
+async function generateCurrentSummary() {
+  if (!currentLiterature.value) return
+  const literatureId = currentLiterature.value.id
+  summaryLoading.value = true
+  try {
+    const result = await generateLiteratureSummary(literatureId)
+    summaryResult.value = result
+    if (detail.value?.literature) {
+      detail.value = {
+        ...detail.value,
+        literature: {
+          ...detail.value.literature,
+          aiSummary: result.summary,
+        },
+      }
+    }
+    ElMessage.success('AI 摘要已生成')
+  } catch (error) {
+    console.error(
+      'literature summary generate failed, scenario=literature-ai-summary, literatureId=%s',
+      literatureId,
+      error,
+    )
+    summaryResult.value = {
+      literatureId,
+      summary:
+        currentLiterature.value.aiSummary ||
+        '演示摘要：本文围绕学术文献检索中的意图理解与资源推荐展开，可为 ScholarMind 的语义检索、证据引用和个性化推荐模块提供方法参考。',
+      status: 'DEMO_READY',
+    }
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
+async function askCurrentQuestion() {
+  if (!currentLiterature.value) return
+  if (!qaForm.question.trim()) {
+    ElMessage.warning('请输入要追问的问题')
+    return
+  }
+  const literatureId = currentLiterature.value.id
+  qaLoading.value = true
+  try {
+    const result = await askLiteratureQuestion(literatureId, {
+      question: qaForm.question,
+      limit: qaForm.limit,
+    })
+    activeAnswer.value = result
+    qaRecords.value = [result, ...qaRecords.value.filter((item) => item.recordId !== result.recordId)]
+    ElMessage.success('RAG 问答已生成')
+  } catch (error) {
+    console.error(
+      'literature question failed, scenario=literature-rag-question, literatureId=%s, question=%s, limit=%s',
+      literatureId,
+      qaForm.question,
+      qaForm.limit,
+      error,
+    )
+    activeAnswer.value = {
+      recordId: Date.now(),
+      literatureId,
+      question: qaForm.question,
+      answer:
+        '演示回答：可以先把论文拆成“问题、方法、数据、结论、局限”五类证据，再用 RAG 引用命中的原文片段，回答时显式区分作者结论和系统推断。',
+      references: demoReferences.filter((item) => item.literatureId === literatureId),
+    }
+    qaRecords.value = [activeAnswer.value, ...qaRecords.value]
+  } finally {
+    qaLoading.value = false
+  }
+}
+
+async function compareVisibleLiteratures() {
+  if (compareIds.value.length < 2) {
+    ElMessage.warning('至少需要两篇文献才能对比')
+    return
+  }
+  compareLoading.value = true
+  try {
+    compareResult.value = await compareLiteratures({
+      literatureIds: compareIds.value.slice(0, 6),
+    })
+    ElMessage.success('文献对比已生成')
+  } catch (error) {
+    console.error(
+      'literature compare failed, scenario=literature-ai-compare, literatureIds=%s',
+      compareIds.value.join(','),
+      error,
+    )
+    compareResult.value = {
+      literatureIds: compareIds.value,
+      analysis:
+        '演示对比：第一篇偏个性化推荐和用户行为建模，第二篇偏自然语言意图识别。两者可以组合成“意图解析 -> 语义召回 -> 行为排序 -> 阅读反馈”的完整 RAG 文献检索链路。',
+    }
+  } finally {
+    compareLoading.value = false
+  }
+}
+
+async function saveNote() {
+  if (!noteForm.title.trim() || !noteForm.content.trim()) {
+    ElMessage.warning('请填写笔记标题和内容')
+    return
+  }
+  noteSaving.value = true
+  try {
+    if (noteMode.value === 'edit' && selectedNote.value) {
+      await updateReadingNote(selectedNote.value.id, noteForm)
+    } else {
+      await createReadingNote(noteForm)
+    }
+    ElMessage.success('笔记已保存')
+    noteDrawerVisible.value = false
+    if (currentLiterature.value) {
+      await fetchNotes(currentLiterature.value.id)
+    }
+  } catch (error) {
+    console.error(
+      'reading note save failed, scenario=reading-note-save, noteId=%s, literatureId=%s, title=%s',
+      selectedNote.value?.id,
+      noteForm.literatureId,
+      noteForm.title,
+      error,
+    )
+  } finally {
+    noteSaving.value = false
+  }
+}
+
+async function removeNote(note: ReadingNote) {
+  try {
+    await ElMessageBox.confirm('删除后不可恢复，确认删除这条阅读笔记？', '删除笔记', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await deleteReadingNote(note.id)
+    ElMessage.success('笔记已删除')
+    if (currentLiterature.value) {
+      await fetchNotes(currentLiterature.value.id)
+    }
+  } catch (error) {
+    if (error === 'cancel') return
+    console.error(
+      'reading note delete failed, scenario=reading-note-delete, noteId=%s, literatureId=%s',
+      note.id,
+      note.literatureId,
       error,
     )
   }
@@ -301,16 +837,16 @@ onMounted(async () => {
   <section class="library-page">
     <div class="spatial-hero">
       <div>
-        <p class="panel__eyebrow">AI Literature Reading</p>
-        <h2>把检索、精读和笔记放在同一个空间里</h2>
+        <p class="panel__eyebrow">Stage 4 LLM + RAG Workspace</p>
+        <h2>让语义检索、证据引用和论文问答在阅读舱里闭环</h2>
         <p>
-          先通过主题、作者、关键词锁定论文，再在右侧阅读面板中查看摘要、关键词、阅读进度和笔记。
+          第四阶段聚焦 LLM 与 RAG：自然语言检索、向量索引、AI 摘要、文献问答和多文献对比会围绕当前阅读材料同步运转。
         </p>
       </div>
       <div class="hero-orbit" aria-hidden="true">
-        <span>PDF</span>
         <span>RAG</span>
-        <span>AI</span>
+        <span>Ask</span>
+        <span>Cite</span>
       </div>
     </div>
 
@@ -341,7 +877,7 @@ onMounted(async () => {
               <el-option
                 v-for="category in categories"
                 :key="category.id"
-                :label="category.name"
+                :label="displayCategoryName(category.name)"
                 :value="category.id"
               />
             </el-select>
@@ -368,6 +904,35 @@ onMounted(async () => {
           </el-button>
         </el-form>
 
+        <section class="rag-search-box" aria-label="RAG 语义检索">
+          <div class="panel-heading">
+            <div>
+              <p class="panel__eyebrow">Semantic Retrieval</p>
+              <h3>RAG 检索</h3>
+            </div>
+            <el-tag effect="plain">{{ ragForm.mode === 'natural' ? '自然语言' : '语义向量' }}</el-tag>
+          </div>
+          <el-segmented
+            v-model="ragForm.mode"
+            :options="[
+              { label: '自然语言', value: 'natural' },
+              { label: '语义检索', value: 'semantic' },
+            ]"
+          />
+          <el-input
+            v-model="ragForm.query"
+            type="textarea"
+            :rows="4"
+            placeholder="用研究问题描述你想找的文献"
+          />
+          <div class="rag-search-box__footer">
+            <el-input-number v-model="ragForm.limit" :min="1" :max="10" controls-position="right" />
+            <el-button :icon="Connection" type="primary" :loading="ragSearching" @click="runRagSearch">
+              RAG 检索
+            </el-button>
+          </div>
+        </section>
+
         <div class="metric-row">
           <span>
             <strong>{{ total }}</strong>
@@ -378,6 +943,12 @@ onMounted(async () => {
             分类
           </span>
         </div>
+
+        <section v-if="searchInsight" class="rag-intent-panel">
+          <p class="panel__eyebrow">Parsed Intent</p>
+          <p>{{ searchInsight.parsedIntent || '后端返回了检索结果，暂无自然语言意图说明。' }}</p>
+          <strong>{{ searchInsight.references.length }} 条证据片段</strong>
+        </section>
       </aside>
 
       <section class="result-stack" aria-label="检索结果">
@@ -402,49 +973,135 @@ onMounted(async () => {
         </article>
       </section>
 
-      <section class="reader-surface" aria-label="论文阅读器">
-        <template v-if="selected">
+      <section class="reader-surface reader-surface--stage3" aria-label="论文解析阅读器">
+        <template v-if="currentLiterature">
           <div class="reader-toolbar">
-            <el-button :icon="Reading" type="primary" plain @click="chooseLiterature(selected)">
-              标记阅读
+            <el-button
+              :icon="favorited ? StarFilled : Star"
+              type="primary"
+              plain
+              @click="toggleFavorite"
+            >
+              {{ favorited ? '已收藏' : '收藏' }}
             </el-button>
+            <el-button :icon="Reading" plain :loading="historySaving" @click="syncReadingHistory">
+              同步进度
+            </el-button>
+            <el-button :icon="Cpu" plain :loading="indexBuilding" @click="rebuildCurrentIndex">
+              重建索引
+            </el-button>
+            <el-button :icon="MagicStick" plain :loading="summaryLoading" @click="generateCurrentSummary">
+              AI 摘要
+            </el-button>
+            <el-button :icon="Notebook" plain @click="openNoteCreate(0)">新建笔记</el-button>
+            <el-button :icon="CollectionTag" plain @click="openNoteCreate(1)">AI 解析笔记</el-button>
             <el-button :icon="EditPen" plain @click="openEdit">编辑信息</el-button>
             <el-button
               plain
-              :disabled="selected.visibility !== 'PUBLIC'"
+              :disabled="currentLiterature.visibility !== 'PUBLIC'"
               @click="submitCurrent"
             >
               提交审核
             </el-button>
           </div>
 
-          <article class="reader-paper">
-            <p class="panel__eyebrow">{{ selected.categoryName || 'Unclassified' }}</p>
-            <h2>{{ selected.title }}</h2>
+          <article class="reader-paper" v-loading="detailLoading">
+            <div class="reader-titlebar">
+              <div>
+                <p class="panel__eyebrow">{{ displayCategoryName(currentLiterature.categoryName) }}</p>
+                <h2>{{ currentLiterature.title }}</h2>
+              </div>
+              <el-tag :type="favorited ? 'success' : 'info'" effect="light">
+                {{ favorited ? '已收藏' : '未收藏' }}
+              </el-tag>
+            </div>
             <div class="reader-meta">
-              <span>{{ selected.author || '未知作者' }}</span>
-              <span>{{ selected.source || '未填写来源' }}</span>
-              <span>{{ selected.publishYear || '年份未知' }}</span>
+              <span>{{ currentLiterature.author || '未知作者' }}</span>
+              <span>{{ currentLiterature.source || '未填写来源' }}</span>
+              <span>{{ currentLiterature.publishYear || '年份未知' }}</span>
+              <span>{{ currentLiterature.fileType || '未绑定原文' }}</span>
             </div>
 
-            <div class="progress-line">
-              <span :style="{ width: `${readingProgress}%` }" />
-            </div>
+            <section class="parse-status-grid">
+              <div v-for="item in parseSignals" :key="item.label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </section>
+
+            <section class="rag-command-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel__eyebrow">Ask With Evidence</p>
+                  <h3>论文问答</h3>
+                </div>
+                <el-button :icon="ChatLineRound" type="primary" :loading="qaLoading" @click="askCurrentQuestion">
+                  生成回答
+                </el-button>
+              </div>
+              <el-input
+                v-model="qaForm.question"
+                type="textarea"
+                :rows="3"
+                placeholder="围绕当前论文提出一个具体问题"
+              />
+              <div class="rag-command-panel__footer">
+                <span>引用上限</span>
+                <el-input-number v-model="qaForm.limit" :min="1" :max="8" controls-position="right" />
+                <el-button :icon="Refresh" plain :loading="qaHistoryLoading" @click="fetchQaHistory(currentLiterature.id)">
+                  刷新历史
+                </el-button>
+              </div>
+            </section>
+
+            <section v-if="activeAnswer" class="answer-panel">
+              <div class="answer-panel__bubble">
+                <span>{{ activeAnswer.question }}</span>
+                <p>{{ activeAnswer.answer }}</p>
+              </div>
+              <div class="reference-list" v-if="activeAnswer.references.length">
+                <article v-for="reference in activeAnswer.references" :key="reference.id">
+                  <div>
+                    <strong>#{{ reference.chunkIndex ?? reference.id }}</strong>
+                    <span>{{ Math.round(reference.score * 100) }}%</span>
+                  </div>
+                  <p>{{ reference.content }}</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="reading-progress-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel__eyebrow">Reading History</p>
+                  <h3>阅读进度</h3>
+                </div>
+                <span>{{ readingState.progress }}%</span>
+              </div>
+              <el-slider v-model="readingState.progress" :min="0" :max="100" />
+              <div class="history-inputs">
+                <el-input-number v-model="readingState.lastPage" :min="0" controls-position="right" />
+                <span>最后页码</span>
+                <el-input-number v-model="readingState.readDuration" :min="0" controls-position="right" />
+                <span>阅读分钟</span>
+              </div>
+            </section>
 
             <section class="reader-section">
               <h3>AI 摘要</h3>
               <p>
                 {{
-                  selected.aiSummary ||
-                  selected.abstractText ||
-                  '暂无 AI 摘要。后续可接入 RAG 问答和摘要生成，把论文核心问题、方法、数据集和结论自动抽取出来。'
+                  summaryResult?.summary ||
+                  currentLiterature.aiSummary ||
+                  currentLiterature.abstractText ||
+                  '暂无 AI 摘要。可先阅读摘要并创建 AI 解析笔记，后续接入解析任务后可自动沉淀研究问题、方法和结论。'
                 }}
               </p>
             </section>
 
             <section class="reader-section">
-              <h3>摘要</h3>
-              <p>{{ selected.abstractText || '暂无摘要。' }}</p>
+              <h3>解析摘要</h3>
+              <p>{{ currentLiterature.abstractText || '暂无摘要。' }}</p>
             </section>
 
             <section class="keyword-ribbon" v-if="keywordTokens.length">
@@ -452,32 +1109,69 @@ onMounted(async () => {
             </section>
 
             <section class="reading-grid">
-              <div>
-                <h3>阅读提纲</h3>
-                <ol>
-                  <li>研究问题与使用场景</li>
-                  <li>核心方法、模型或系统架构</li>
-                  <li>实验指标、数据来源和局限</li>
-                  <li>可复用到毕业设计的模块</li>
-                </ol>
-              </div>
-              <div>
-                <h3>追问清单</h3>
-                <ol>
-                  <li>这篇论文解决的是检索、推荐还是阅读辅助问题？</li>
-                  <li>哪些变量能变成系统的数据库字段？</li>
-                  <li>是否适合进入 RAG 知识库作为回答依据？</li>
-                </ol>
+              <div v-for="item in outlineItems" :key="item.title">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.content }}</p>
               </div>
             </section>
 
-            <el-input
-              v-model="readerNotes"
-              type="textarea"
-              :rows="5"
-              resize="none"
-              placeholder="记录你的批注、引用句、复现实验想法或论文对比结论"
-            />
+            <section class="qa-history-panel" v-if="qaRecords.length">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel__eyebrow">QA Memory</p>
+                  <h3>问答历史</h3>
+                </div>
+                <el-button :icon="DataAnalysis" plain :loading="compareLoading" @click="compareVisibleLiteratures">
+                  对比当前结果
+                </el-button>
+              </div>
+              <div class="qa-record-list">
+                <button
+                  v-for="record in qaRecords"
+                  :key="record.recordId ?? record.question"
+                  type="button"
+                  @click="activeAnswer = record"
+                >
+                  <span>{{ record.question }}</span>
+                  <small>{{ record.references.length }} 条引用</small>
+                </button>
+              </div>
+            </section>
+
+            <section v-if="compareResult" class="compare-panel">
+              <div>
+                <p class="panel__eyebrow">Literature Compare</p>
+                <h3>多文献对比</h3>
+              </div>
+              <p>{{ compareResult.analysis }}</p>
+              <div class="keyword-ribbon">
+                <span v-for="id in compareResult.literatureIds" :key="id">#{{ id }}</span>
+              </div>
+            </section>
+
+            <section class="note-board">
+              <div class="panel-heading">
+                <div>
+                  <p class="panel__eyebrow">Reading Notes</p>
+                  <h3>阅读笔记</h3>
+                </div>
+                <el-button :icon="Notebook" plain @click="openNoteCreate(0)">添加</el-button>
+              </div>
+              <div class="note-list" v-if="notes.length">
+                <article v-for="note in notes" :key="note.id" class="note-card">
+                  <div>
+                    <el-tag v-if="note.aiGenerated" size="small" type="success">AI</el-tag>
+                    <h4>{{ note.title }}</h4>
+                    <p>{{ note.content }}</p>
+                  </div>
+                  <div class="note-actions">
+                    <el-button text @click="openNoteEdit(note)">编辑</el-button>
+                    <el-button text type="danger" @click="removeNote(note)">删除</el-button>
+                  </div>
+                </article>
+              </div>
+              <el-empty v-else description="暂无笔记，创建一条阅读批注" />
+            </section>
           </article>
         </template>
         <el-empty v-else description="检索后选择一篇文献开始阅读" />
@@ -510,7 +1204,7 @@ onMounted(async () => {
               <el-option
                 v-for="category in categories"
                 :key="category.id"
-                :label="category.name"
+                :label="displayCategoryName(category.name)"
                 :value="category.id"
               />
             </el-select>
@@ -543,6 +1237,38 @@ onMounted(async () => {
           @click="saveLiterature"
         >
           保存文献
+        </el-button>
+      </el-form>
+    </el-drawer>
+
+    <el-drawer
+      v-model="noteDrawerVisible"
+      :title="noteMode === 'create' ? '新建阅读笔记' : '编辑阅读笔记'"
+      size="480px"
+    >
+      <el-form label-position="top">
+        <el-form-item label="标题">
+          <el-input v-model="noteForm.title" />
+        </el-form-item>
+        <el-form-item label="来源">
+          <el-segmented
+            v-model="noteForm.aiGenerated"
+            :options="[
+              { label: '手动笔记', value: 0 },
+              { label: 'AI 解析', value: 1 },
+            ]"
+          />
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="noteForm.content" type="textarea" :rows="10" />
+        </el-form-item>
+        <el-button
+          class="wide-action drawer-action"
+          type="primary"
+          :loading="noteSaving"
+          @click="saveNote"
+        >
+          保存笔记
         </el-button>
       </el-form>
     </el-drawer>

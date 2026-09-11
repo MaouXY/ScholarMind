@@ -1,5 +1,7 @@
 export type UserRole = 'STUDENT' | 'TEACHER' | 'ADMIN'
 
+export type Id = string
+
 export interface LoginForm {
   username: string
   password: string
@@ -7,7 +9,7 @@ export interface LoginForm {
 }
 
 export interface UserProfile {
-  id: number
+  id: Id
   username: string
   nickname: string
   email?: string

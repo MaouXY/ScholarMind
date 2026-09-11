@@ -1,4 +1,5 @@
 import type {
+  Id,
   KnowledgeDocument,
   KnowledgeDocumentPayload,
   KnowledgePage,
@@ -15,16 +16,16 @@ export function createKnowledgeDocument(payload: KnowledgeDocumentPayload) {
 }
 
 export function updateKnowledgeDocument(
-  id: number,
+  id: Id,
   payload: KnowledgeDocumentPayload,
 ) {
   return request.put<never, KnowledgeDocument>(`/admin/rag/documents/${id}`, payload)
 }
 
-export function deleteKnowledgeDocument(id: number) {
+export function deleteKnowledgeDocument(id: Id) {
   return request.delete<never, void>(`/admin/rag/documents/${id}`)
 }
 
-export function rebuildKnowledgeDocument(id: number) {
+export function rebuildKnowledgeDocument(id: Id) {
   return request.post<never, number>(`/admin/rag/documents/${id}/rebuild`)
 }

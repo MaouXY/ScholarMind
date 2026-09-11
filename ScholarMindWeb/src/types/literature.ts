@@ -6,6 +6,8 @@ export type LiteratureStatus =
 
 export type LiteratureVisibility = 'PRIVATE' | 'PUBLIC'
 
+import type { Id } from '@/types/auth'
+
 export interface PageResult<T> {
   items: T[]
   page: number
@@ -14,9 +16,9 @@ export interface PageResult<T> {
 }
 
 export interface LiteratureCategory {
-  id: number
+  id: Id
   name: string
-  parentId?: number | null
+  parentId?: Id | null
   sort: number
   status: number
   createdAt?: string
@@ -24,18 +26,18 @@ export interface LiteratureCategory {
 }
 
 export interface Literature {
-  id: number
+  id: Id
   title: string
   author?: string
   source?: string
   publishYear?: number
   language?: string
-  categoryId?: number | null
+  categoryId?: Id | null
   categoryName?: string | null
-  uploaderId: number
+  uploaderId: Id
   visibility: LiteratureVisibility
   status: LiteratureStatus
-  fileId?: number | null
+  fileId?: Id | null
   fileUrl?: string | null
   fileType?: string | null
   fileSize?: number | null
@@ -44,7 +46,7 @@ export interface Literature {
   keywords?: string
   readCount?: number
   downloadCount?: number
-  reviewedBy?: number | null
+  reviewedBy?: Id | null
   reviewedAt?: string | null
   rejectReason?: string | null
   createdAt?: string
@@ -55,7 +57,7 @@ export interface LiteratureQuery {
   page: number
   size: number
   keyword?: string
-  categoryId?: number
+  categoryId?: Id
   status?: LiteratureStatus
   visibility?: LiteratureVisibility
 }
@@ -66,20 +68,123 @@ export interface LiteraturePayload {
   source?: string
   publishYear?: number
   language?: string
-  categoryId?: number
+  categoryId?: Id
   visibility: LiteratureVisibility
-  fileId?: number
+  fileId?: Id
   abstractText?: string
   keywords?: string
 }
 
+export interface LiteratureReferenceChunk {
+  id: Id
+  literatureId: Id
+  chunkIndex?: number
+  content: string
+  score: number
+}
+
+export interface LiteratureSearchPayload {
+  query: string
+  categoryId?: Id
+  limit?: number
+}
+
+export interface LiteratureSearchResult {
+  query: string
+  literatures: Literature[]
+  references: LiteratureReferenceChunk[]
+  parsedIntent?: string
+}
+
+export interface LiteratureSummaryResult {
+  literatureId: Id
+  summary: string
+  status: string
+  summaryUpdatedAt?: string
+}
+
+export interface LiteratureIndexResult {
+  literatureId: Id
+  chunkCount: number
+  parseStatus: string
+}
+
+export interface LiteratureQuestionPayload {
+  question: string
+  limit?: number
+}
+
+export interface LiteratureQuestionResult {
+  recordId?: Id
+  literatureId: Id
+  question: string
+  answer: string
+  references: LiteratureReferenceChunk[]
+  createdAt?: string
+}
+
+export interface LiteratureComparePayload {
+  literatureIds: Id[]
+}
+
+export interface LiteratureCompareResult {
+  literatureIds: Id[]
+  analysis: string
+}
+
+export interface ReadingHistory {
+  id?: Id
+  literatureId: Id
+  lastPage?: number
+  progress?: number
+  readDuration?: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ReadingHistoryPayload {
+  lastPage?: number
+  progress?: number
+  readDuration?: number
+}
+
+export interface ReadingNote {
+  id: Id
+  literatureId: Id
+  title: string
+  content: string
+  aiGenerated?: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ReadingNotePayload {
+  literatureId: Id
+  title: string
+  content: string
+  aiGenerated?: number
+}
+
+export interface Favorite {
+  id: Id
+  literatureId: Id
+  createdAt?: string
+}
+
+export interface LiteratureDetail {
+  literature: Literature
+  favorited: boolean
+  readingHistory?: ReadingHistory | null
+  recentNotes: ReadingNote[]
+}
+
 export interface FileAsset {
-  id: number
+  id: Id
   originalName: string
   contentType: string
   sizeBytes: number
   publicUrl?: string
   bizType?: string
-  bizId?: number
+  bizId?: Id
   createdAt?: string
 }

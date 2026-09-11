@@ -3,17 +3,18 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ChatLineRound, Reading, Search } from '@element-plus/icons-vue'
 
 import { listCategories, listLiteratures, markLiteratureRead } from '@/api/literature'
-import type { Literature, LiteratureCategory } from '@/types/literature'
+import { displayCategoryName } from '@/utils/format'
+import type { Id, Literature, LiteratureCategory } from '@/types/literature'
 
 const demoGuides: Literature[] = [
   {
-    id: 1200000000000000002,
+    id: '1200000000000000002',
     title: 'Semantic Retrieval Method for Academic Literature Based on User Intent',
     author: 'Wang Qian',
     source: 'Modern Information',
     publishYear: 2023,
     categoryName: 'Information Retrieval',
-    uploaderId: 1000000000000000003,
+    uploaderId: '1000000000000000003',
     visibility: 'PUBLIC',
     status: 'PUBLISHED',
     abstractText:
@@ -25,13 +26,13 @@ const demoGuides: Literature[] = [
     downloadCount: 5,
   },
   {
-    id: 1200000000000000001,
+    id: '1200000000000000001',
     title: 'Research on Intelligent Recommendation Service in University Digital Library',
     author: 'Li Ming',
     source: 'Library Information Service',
     publishYear: 2024,
     categoryName: 'Recommendation System',
-    uploaderId: 1000000000000000003,
+    uploaderId: '1000000000000000003',
     visibility: 'PUBLIC',
     status: 'PUBLISHED',
     abstractText:
@@ -54,7 +55,7 @@ const query = reactive({
   page: 1,
   size: 8,
   keyword: '',
-  categoryId: undefined as number | undefined,
+  categoryId: undefined as Id | undefined,
   status: 'PUBLISHED' as const,
   visibility: 'PUBLIC' as const,
 })
@@ -153,7 +154,7 @@ onMounted(async () => {
               <el-option
                 v-for="category in categories"
                 :key="category.id"
-                :label="category.name"
+                :label="displayCategoryName(category.name)"
                 :value="category.id"
               />
             </el-select>
@@ -171,7 +172,7 @@ onMounted(async () => {
             :class="{ 'is-active': selected?.id === item.id }"
             @click="selectLiterature(item)"
           >
-            <span>{{ item.categoryName || '未分类' }}</span>
+            <span>{{ displayCategoryName(item.categoryName) }}</span>
             <strong>{{ item.title }}</strong>
           </button>
         </div>

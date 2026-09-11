@@ -4,7 +4,7 @@ import request from '@/utils/request'
 
 const mockUsers: Record<LoginForm['role'], UserProfile> = {
   STUDENT: {
-    id: 1000000000000000002,
+    id: '1000000000000000002',
     username: 'student01',
     nickname: 'Student One',
     email: 'student01@scholarmind.local',
@@ -12,7 +12,7 @@ const mockUsers: Record<LoginForm['role'], UserProfile> = {
     status: 1,
   },
   TEACHER: {
-    id: 1000000000000000003,
+    id: '1000000000000000003',
     username: 'teacher01',
     nickname: 'Teacher One',
     email: 'teacher01@scholarmind.local',
@@ -20,7 +20,7 @@ const mockUsers: Record<LoginForm['role'], UserProfile> = {
     status: 1,
   },
   ADMIN: {
-    id: 1000000000000000001,
+    id: '1000000000000000001',
     username: 'admin',
     nickname: 'System Admin',
     email: 'admin@scholarmind.local',
