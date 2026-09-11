@@ -4,6 +4,7 @@ import type {
   Id,
   Literature,
   LiteratureCategory,
+  LiteratureChunk,
   LiteratureComparePayload,
   LiteratureCompareResult,
   LiteratureDetail,
@@ -34,6 +35,10 @@ export function getLiterature(id: Id) {
 
 export function getLiteratureView(id: Id) {
   return request.get<never, LiteratureDetail>(`/literatures/${id}/view`)
+}
+
+export function listLiteratureChunks(id: Id) {
+  return request.get<never, LiteratureChunk[]>(`/literatures/${id}/chunks`)
 }
 
 export function createLiterature(payload: LiteraturePayload) {

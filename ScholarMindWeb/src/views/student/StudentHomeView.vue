@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatLineRound,
@@ -9,6 +10,7 @@ import {
   DataAnalysis,
   DocumentAdd,
   EditPen,
+  InfoFilled,
   MagicStick,
   Notebook,
   Reading,
@@ -106,14 +108,14 @@ const demoLiteratures: Literature[] = [
 
 const demoNotes: ReadingNote[] = [
   {
-    id: 9000000000000000001,
+    id: '9000000000000000001',
     literatureId: '1200000000000000001',
     title: '可复用模块',
     content: '推荐系统部分可以抽象为关键词召回、行为权重、混合排序三个模块。',
     aiGenerated: 0,
   },
   {
-    id: 9000000000000000002,
+    id: '9000000000000000002',
     literatureId: '1200000000000000001',
     title: 'AI 解析建议',
     content: '适合用作“个性化资源推荐”章节的相关工作，对比用户行为和内容相似度。',
@@ -169,6 +171,19 @@ const noteDrawerVisible = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
 const noteMode = ref<'create' | 'edit'>('create')
 const favorited = ref(false)
+
+const router = useRouter()
+
+// 跳转到当前文献的独立页面：详情 / 在线阅读 / 智能问答
+function openLiteraturePage(target: 'detail' | 'read' | 'qa') {
+  const literatureId = currentLiterature.value?.id
+  if (!literatureId) {
+    ElMessage.warning('请先选择一篇文献')
+    return
+  }
+  const suffix = target === 'detail' ? '' : target === 'read' ? '/read' : '/qa'
+  router.push(`/student/literature/${literatureId}${suffix}`)
+}
 
 const query = reactive({
   page: 1,
@@ -710,15 +725,16 @@ async function askCurrentQuestion() {
       qaForm.limit,
       error,
     )
-    activeAnswer.value = {
-      recordId: Date.now(),
+    const fallbackAnswer: LiteratureQuestionResult = {
+      recordId: String(Date.now()),
       literatureId,
       question: qaForm.question,
       answer:
         '演示回答：可以先把论文拆成“问题、方法、数据、结论、局限”五类证据，再用 RAG 引用命中的原文片段，回答时显式区分作者结论和系统推断。',
       references: demoReferences.filter((item) => item.literatureId === literatureId),
     }
-    qaRecords.value = [activeAnswer.value, ...qaRecords.value]
+    activeAnswer.value = fallbackAnswer
+    qaRecords.value = [fallbackAnswer, ...qaRecords.value]
   } finally {
     qaLoading.value = false
   }
@@ -1003,6 +1019,14 @@ onMounted(async () => {
             >
               提交审核
             </el-button>
+          </div>
+
+          <div class="reader-toolbar" aria-label="独立页面入口">
+            <el-button :icon="InfoFilled" type="primary" @click="openLiteraturePage('detail')">
+              查看详情
+            </el-button>
+            <el-button :icon="Reading" @click="openLiteraturePage('read')">在线阅读</el-button>
+            <el-button :icon="ChatLineRound" @click="openLiteraturePage('qa')">智能问答</el-button>
           </div>
 
           <article class="reader-paper" v-loading="detailLoading">

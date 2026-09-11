@@ -27,6 +27,24 @@ const router = createRouter({
           meta: { role: 'STUDENT', title: '文献检索与阅读' },
         },
         {
+          path: 'student/literature/:id',
+          name: 'student-literature-detail',
+          component: () => import('@/views/student/LiteratureDetailView.vue'),
+          meta: { role: 'STUDENT', title: '文献详情' },
+        },
+        {
+          path: 'student/literature/:id/read',
+          name: 'student-literature-reader',
+          component: () => import('@/views/student/LiteratureReaderView.vue'),
+          meta: { role: 'STUDENT', title: '在线阅读' },
+        },
+        {
+          path: 'student/literature/:id/qa',
+          name: 'student-literature-qa',
+          component: () => import('@/views/student/LiteratureQaView.vue'),
+          meta: { role: 'STUDENT', title: '智能问答' },
+        },
+        {
           path: 'teacher/review',
           name: 'teacher-review',
           component: () => import('@/views/worker/WorkerHomeView.vue'),
@@ -37,6 +55,30 @@ const router = createRouter({
           name: 'admin-dashboard',
           component: () => import('@/views/admin/AdminHomeView.vue'),
           meta: { role: 'ADMIN', title: '平台管理中心' },
+        },
+        {
+          path: 'admin/users',
+          name: 'admin-users',
+          component: () => import('@/views/admin/AdminUsersView.vue'),
+          meta: { role: 'ADMIN', title: '用户管理' },
+        },
+        {
+          path: 'admin/categories',
+          name: 'admin-categories',
+          component: () => import('@/views/admin/AdminCategoriesView.vue'),
+          meta: { role: 'ADMIN', title: '分类管理' },
+        },
+        {
+          path: 'admin/ai-logs',
+          name: 'admin-ai-logs',
+          component: () => import('@/views/admin/AdminAiLogsView.vue'),
+          meta: { role: 'ADMIN', title: 'AI 调用日志' },
+        },
+        {
+          path: 'admin/operations',
+          name: 'admin-operations',
+          component: () => import('@/views/admin/AdminOperationsView.vue'),
+          meta: { role: 'ADMIN', title: '运营分析' },
         },
         {
           path: 'analytics/overview',

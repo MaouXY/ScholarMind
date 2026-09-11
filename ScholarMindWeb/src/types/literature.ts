@@ -8,6 +8,9 @@ export type LiteratureVisibility = 'PRIVATE' | 'PUBLIC'
 
 import type { Id } from '@/types/auth'
 
+// 重新导出 Id，便于各视图从 '@/types/literature' 统一引用
+export type { Id }
+
 export interface PageResult<T> {
   items: T[]
   page: number
@@ -73,6 +76,16 @@ export interface LiteraturePayload {
   fileId?: Id
   abstractText?: string
   keywords?: string
+}
+
+export interface LiteratureChunk {
+  id: Id
+  literatureId: Id
+  chunkIndex: number
+  pageNo?: number | null
+  content: string
+  tokenCount?: number | null
+  vectorStoreStatus?: string | null
 }
 
 export interface LiteratureReferenceChunk {

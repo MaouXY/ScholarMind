@@ -1,4 +1,4 @@
-import type { Id } from '@/types/auth'
+import type { Id, UserRole } from '@/types/auth'
 
 export interface AdminOverview {
   userTotal: number
@@ -82,4 +82,79 @@ export interface AdminDashboard {
   hotLiteratures: AdminHotLiterature[]
   activeUsers: AdminActiveUser[]
   aiTaskHealth: AdminAiTaskHealth[]
+}
+
+export interface AdminUserQuery {
+  page: number
+  size: number
+  keyword?: string
+  role?: UserRole
+  status?: number
+}
+
+export interface AdminCategoryPayload {
+  name: string
+  parentId?: Id | null
+  sort: number
+  status: number
+}
+
+export interface AdminAiTask {
+  id: Id
+  taskType: string
+  bizType?: string
+  bizId?: Id
+  status: string
+  durationMs?: number
+  requestChars: number
+  responseChars: number
+  requestPreview?: string
+  responsePreview?: string
+  errorMessage?: string
+  modelName?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface AdminAiTaskSummary {
+  total: number
+  success: number
+  failed: number
+  timeout: number
+  running: number
+  successRate: number
+  avgDurationMs: number
+  items: AdminAiTaskHealth[]
+}
+
+export interface AdminAiTaskQuery {
+  page: number
+  size: number
+  taskType?: string
+  status?: string
+  keyword?: string
+}
+
+export interface AdminKeywordStat {
+  keyword: string
+  literatureCount: number
+  searchCount: number
+  qaCount: number
+  total: number
+}
+
+export interface AdminOperationReportSection {
+  title: string
+  content: string
+}
+
+export interface AdminOperationReport {
+  generatedAt: string
+  days: number
+  fallbackUsed: boolean
+  summary: string
+  highlights: string[]
+  risks: string[]
+  suggestions: string[]
+  sections: AdminOperationReportSection[]
 }

@@ -1,6 +1,8 @@
 import type { Id } from '@/types/auth'
 import type { PageResult } from '@/types/literature'
 
+export type { Id }
+
 export interface KnowledgeDocument {
   id: Id
   title: string

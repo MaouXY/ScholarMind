@@ -169,7 +169,6 @@ const overviewCards = computed(() => {
 })
 
 const reviewPressure = computed(() => dashboard.value.overview.pendingReviewTotal + pending.value.length)
-const aiHealth = computed(() => dashboard.value.aiTaskHealth[0])
 
 const demoPending: Literature[] = [
   {

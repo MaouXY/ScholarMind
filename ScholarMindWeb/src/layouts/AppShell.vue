@@ -3,9 +3,13 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Collection,
+  Cpu,
   DataAnalysis,
   Management,
   Reading,
+  Tickets,
+  TrendCharts,
+  User,
   Expand,
   Fold,
 } from '@element-plus/icons-vue'
@@ -55,6 +59,30 @@ const menus = computed(() => [
         label: '数据总览',
         path: '/analytics/overview',
         icon: DataAnalysis,
+        role: 'ADMIN',
+      },
+      {
+        label: '用户管理',
+        path: '/admin/users',
+        icon: User,
+        role: 'ADMIN',
+      },
+      {
+        label: '分类管理',
+        path: '/admin/categories',
+        icon: Tickets,
+        role: 'ADMIN',
+      },
+      {
+        label: 'AI 调用日志',
+        path: '/admin/ai-logs',
+        icon: Cpu,
+        role: 'ADMIN',
+      },
+      {
+        label: '运营分析',
+        path: '/admin/operations',
+        icon: TrendCharts,
         role: 'ADMIN',
       },
     ],
