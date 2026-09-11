@@ -1,0 +1,19 @@
+# === 构建产物 ===
+target/
+dist/
+node_modules/
+
+# === 日志与本地运行文件 ===
+*.log
+*.local
+.env.local
+
+# === IDE ===
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# === 随项目拷贝的离线 Maven 仓库副本（体积大、可重新下载，不入库） ===
+/ScholarMindApi/D/
