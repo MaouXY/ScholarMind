@@ -34,6 +34,10 @@ public class Literature {
     private Long reviewedBy;
     private LocalDateTime reviewedAt;
     private String rejectReason;
+    private String parseStatus;
+    private String parseError;
+    private String summaryStatus;
+    private LocalDateTime summaryUpdatedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

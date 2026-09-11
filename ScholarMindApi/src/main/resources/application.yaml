@@ -1,5 +1,5 @@
 ﻿server:
-  port: 8991
+  port: 8992
 
 spring:
   application:
@@ -62,7 +62,7 @@ app:
       web-search:
         enabled: ${APP_AGENT_WEB_SEARCH_ENABLED:false}
         base-url: ${APP_AGENT_WEB_SEARCH_BASE_URL:https://api.bocha.cn/v1/web-search}
-        api-key: ${APP_AGENT_WEB_SEARCH_API_KEY:}
+        api-key: ${APP_AGENT_WEB_SEARCH_API_KEY:sk-7c2455144b084f81890d51c6620f7969}
         timeout-seconds: ${APP_AGENT_WEB_SEARCH_TIMEOUT_SECONDS:20}
         freshness: ${APP_AGENT_WEB_SEARCH_FRESHNESS:noLimit}
         summary: ${APP_AGENT_WEB_SEARCH_SUMMARY:true}
@@ -72,7 +72,7 @@ app:
       rerank:
         enabled: ${APP_AGENT_RERANK_ENABLED:true}
         base-url: ${APP_AGENT_RERANK_BASE_URL:https://api.bocha.cn/v1/rerank}
-        api-key: ${APP_AGENT_RERANK_API_KEY:}
+        api-key: ${APP_AGENT_RERANK_API_KEY:sk-7c2455144b084f81890d51c6620f7969}
         timeout-seconds: ${APP_AGENT_RERANK_TIMEOUT_SECONDS:20}
         model: ${APP_AGENT_RERANK_MODEL:gte-rerank}
         top-n: ${APP_AGENT_RERANK_TOP_N:6}
@@ -116,7 +116,7 @@ app:
       region: ${APP_STORAGE_S3_REGION:us-east-1}
       force-path-style: ${APP_STORAGE_S3_FORCE_PATH_STYLE:true}
   file:
-    max-size: ${APP_FILE_MAX_SIZE:10485760}
+    max-size: ${APP_FILE_MAX_SIZE:52428800}
     allowed-content-types:
       - image/jpeg
       - image/png

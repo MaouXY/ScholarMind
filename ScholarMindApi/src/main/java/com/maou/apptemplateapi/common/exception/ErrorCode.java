@@ -78,6 +78,12 @@ public enum ErrorCode {
     LITERATURE_ACCESS_DENIED(14102, "literature access denied"),
     LITERATURE_STATUS_INVALID(14103, "literature status invalid"),
     LITERATURE_FILE_INVALID(14104, "literature file invalid"),
+    LITERATURE_FAVORITE_DUPLICATED(14105, "literature favorite duplicated"),
+    LITERATURE_FAVORITE_NOT_FOUND(14106, "literature favorite not found"),
+    READING_HISTORY_NOT_FOUND(14201, "reading history not found"),
+    READING_PROGRESS_INVALID(14202, "reading progress invalid"),
+    READING_NOTE_NOT_FOUND(14301, "reading note not found"),
+    READING_NOTE_ACCESS_DENIED(14302, "reading note access denied"),
 
     GROWTH_REWARD_DUPLICATED(20001, "growth reward duplicated"),
     GROWTH_POINTS_NOT_ENOUGH(20002, "growth points not enough"),

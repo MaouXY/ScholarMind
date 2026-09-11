@@ -6,6 +6,8 @@ public interface AiClient {
 
     String generate(String systemPrompt, String userPrompt);
 
+    String generateJson(String systemPrompt, String userPrompt);
+
     String generateWithImages(String systemPrompt, String userPrompt, List<AiImageInput> images);
 }
 

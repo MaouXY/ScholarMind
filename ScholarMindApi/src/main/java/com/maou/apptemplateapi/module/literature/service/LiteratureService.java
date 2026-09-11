@@ -276,7 +276,13 @@ public class LiteratureService {
         fileMetadataMapper.updateById(file);
     }
 
-    private Literature requireLiterature(Long id, String scenario) {
+    public Literature requireReadableLiterature(Long id, CurrentUser currentUser, String scenario) {
+        Literature literature = requireLiterature(id, scenario);
+        ensureReadable(literature, currentUser, scenario);
+        return literature;
+    }
+
+    Literature requireLiterature(Long id, String scenario) {
         Literature literature = literatureMapper.selectById(id);
         if (literature == null || literature.getDeleted() != 0) {
             log.warn("literature not found, scenario={}, literatureId={}", scenario, id);
@@ -345,7 +351,7 @@ public class LiteratureService {
         return category == null ? null : category.getName();
     }
 
-    private LiteratureResponse toResponse(Literature literature, String categoryName) {
+    LiteratureResponse toResponse(Literature literature, String categoryName) {
         return new LiteratureResponse(literature.getId(), literature.getTitle(), literature.getAuthor(), literature.getSource(),
                 literature.getPublishYear(), literature.getLanguage(), literature.getCategoryId(), categoryName,
                 literature.getUploaderId(), literature.getVisibility(), literature.getStatus(), literature.getFileId(),

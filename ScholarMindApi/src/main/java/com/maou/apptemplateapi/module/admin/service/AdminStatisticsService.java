@@ -1,0 +1,424 @@
+package com.maou.apptemplateapi.module.admin.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.maou.apptemplateapi.common.enums.UserRole;
+import com.maou.apptemplateapi.common.exception.BusinessException;
+import com.maou.apptemplateapi.common.exception.ErrorCode;
+import com.maou.apptemplateapi.common.security.CurrentUser;
+import com.maou.apptemplateapi.common.security.CurrentUserProvider;
+import com.maou.apptemplateapi.module.admin.dto.*;
+import com.maou.apptemplateapi.module.ai.entity.AiTaskRecord;
+import com.maou.apptemplateapi.module.ai.mapper.AiTaskRecordMapper;
+import com.maou.apptemplateapi.module.file.entity.FileMetadata;
+import com.maou.apptemplateapi.module.file.mapper.FileMetadataMapper;
+import com.maou.apptemplateapi.module.literature.entity.*;
+import com.maou.apptemplateapi.module.literature.mapper.*;
+import com.maou.apptemplateapi.module.rag.entity.RagKnowledgeDocument;
+import com.maou.apptemplateapi.module.rag.mapper.RagKnowledgeDocumentMapper;
+import com.maou.apptemplateapi.module.user.entity.UserAccount;
+import com.maou.apptemplateapi.module.user.mapper.UserAccountMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AdminStatisticsService {
+
+    private static final int DEFAULT_DAYS = 7;
+    private static final int MAX_DAYS = 30;
+    private static final int DEFAULT_LIMIT = 8;
+    private static final int MAX_LIMIT = 20;
+
+    private final UserAccountMapper userAccountMapper;
+    private final LiteratureMapper literatureMapper;
+    private final LiteratureCategoryMapper categoryMapper;
+    private final LiteratureFavoriteMapper favoriteMapper;
+    private final ReadingHistoryMapper readingHistoryMapper;
+    private final ReadingNoteMapper readingNoteMapper;
+    private final LiteratureQaRecordMapper qaRecordMapper;
+    private final FileMetadataMapper fileMetadataMapper;
+    private final AiTaskRecordMapper aiTaskRecordMapper;
+    private final RagKnowledgeDocumentMapper ragKnowledgeDocumentMapper;
+
+    public AdminDashboardResponse dashboard(Integer days, Integer limit) {
+        CurrentUser admin = requireAdmin("admin-statistics-dashboard");
+        int normalizedDays = normalize(days, DEFAULT_DAYS, MAX_DAYS);
+        int normalizedLimit = normalize(limit, DEFAULT_LIMIT, MAX_LIMIT);
+        AdminDashboardResponse response = new AdminDashboardResponse(
+                overview(),
+                trends(normalizedDays),
+                literatureStatusStats(),
+                literatureCategoryStats(normalizedLimit),
+                userRoleStats(),
+                hotLiteratures(normalizedLimit),
+                activeUsers(normalizedLimit),
+                aiTaskHealth()
+        );
+        log.info("admin statistics dashboard queried, scenario=admin-statistics-dashboard, adminId={}, days={}, limit={}",
+                admin.getId(), normalizedDays, normalizedLimit);
+        return response;
+    }
+
+    private AdminOverviewResponse overview() {
+        long aiTaskTotal = countAiTasks(null);
+        long aiSuccess = countAiTasks("SUCCESS");
+        long aiFailed = countAiTasks("FAILED");
+        Long avgDurationMs = aiTaskTotal == 0 ? 0L : avgAiDuration(null);
+        return new AdminOverviewResponse(
+                countUsers(null, null),
+                countUsers("STUDENT", null),
+                countUsers("TEACHER", null),
+                countUsers(null, 1),
+                countLiteratures(null, null),
+                countLiteratures("PUBLISHED", null),
+                countLiteratures("PENDING_REVIEW", null),
+                countLiteratures(null, "PRIVATE"),
+                countFiles(),
+                sumFileSize(),
+                countFavorites(),
+                countReadingHistories(),
+                countReadingNotes(),
+                countQaRecords(),
+                countRagDocuments(),
+                aiTaskTotal,
+                aiSuccess,
+                aiFailed,
+                rate(aiSuccess, aiTaskTotal),
+                avgDurationMs == null ? 0L : avgDurationMs
+        );
+    }
+
+    private List<AdminTrendPointResponse> trends(int days) {
+        LocalDate start = LocalDate.now().minusDays(days - 1L);
+        List<UserAccount> users = userAccountMapper.selectList(createdAfter(UserAccount::getCreatedAt, UserAccount::getDeleted, start));
+        List<Literature> literatures = literatureMapper.selectList(createdAfter(Literature::getCreatedAt, Literature::getDeleted, start));
+        List<ReadingHistory> histories = readingHistoryMapper.selectList(updatedAfter(ReadingHistory::getUpdatedAt, ReadingHistory::getDeleted, start));
+        List<LiteratureQaRecord> qaRecords = qaRecordMapper.selectList(createdAfter(LiteratureQaRecord::getCreatedAt, LiteratureQaRecord::getDeleted, start));
+        List<AiTaskRecord> aiTasks = aiTaskRecordMapper.selectList(createdAfter(AiTaskRecord::getCreatedAt, AiTaskRecord::getDeleted, start));
+
+        Map<LocalDate, Long> userCounts = groupByDate(users, UserAccount::getCreatedAt);
+        Map<LocalDate, Long> literatureCounts = groupByDate(literatures, Literature::getCreatedAt);
+        Map<LocalDate, Long> historyCounts = groupByDate(histories, ReadingHistory::getUpdatedAt);
+        Map<LocalDate, Long> qaCounts = groupByDate(qaRecords, LiteratureQaRecord::getCreatedAt);
+        Map<LocalDate, Long> aiCounts = groupByDate(aiTasks, AiTaskRecord::getCreatedAt);
+
+        List<AdminTrendPointResponse> result = new ArrayList<>();
+        for (int i = 0; i < days; i++) {
+            LocalDate date = start.plusDays(i);
+            result.add(new AdminTrendPointResponse(
+                    date.toString(),
+                    userCounts.getOrDefault(date, 0L),
+                    literatureCounts.getOrDefault(date, 0L),
+                    historyCounts.getOrDefault(date, 0L),
+                    qaCounts.getOrDefault(date, 0L),
+                    aiCounts.getOrDefault(date, 0L)
+            ));
+        }
+        return result;
+    }
+
+    private List<AdminDimensionStatResponse> literatureStatusStats() {
+        return literatureMapper.selectList(new LambdaQueryWrapper<Literature>().eq(Literature::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(item -> value(item.getStatus(), "UNKNOWN"), Collectors.counting()))
+                .entrySet()
+                .stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private List<AdminDimensionStatResponse> literatureCategoryStats(int limit) {
+        Map<Long, LiteratureCategory> categoryMap = categoryMapper.selectList(new LambdaQueryWrapper<LiteratureCategory>()
+                        .eq(LiteratureCategory::getDeleted, 0))
+                .stream()
+                .collect(Collectors.toMap(LiteratureCategory::getId, Function.identity()));
+        return literatureMapper.selectList(new LambdaQueryWrapper<Literature>().eq(Literature::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(item -> categoryName(item.getCategoryId(), categoryMap), Collectors.counting()))
+                .entrySet()
+                .stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(limit)
+                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private List<AdminDimensionStatResponse> userRoleStats() {
+        return userAccountMapper.selectList(new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(item -> value(item.getRole(), "UNKNOWN"), Collectors.counting()))
+                .entrySet()
+                .stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private List<AdminHotLiteratureResponse> hotLiteratures(int limit) {
+        List<Literature> literatures = literatureMapper.selectList(new LambdaQueryWrapper<Literature>()
+                .eq(Literature::getDeleted, 0)
+                .orderByDesc(Literature::getReadCount)
+                .orderByDesc(Literature::getDownloadCount)
+                .orderByDesc(Literature::getUpdatedAt)
+                .last("limit " + limit));
+        Map<Long, LiteratureCategory> categoryMap = categoryMapper.selectList(new LambdaQueryWrapper<LiteratureCategory>()
+                        .eq(LiteratureCategory::getDeleted, 0))
+                .stream()
+                .collect(Collectors.toMap(LiteratureCategory::getId, Function.identity()));
+        Map<Long, Long> favoriteCounts = countFavoritesByLiterature(literatures);
+        Map<Long, Long> noteCounts = countNotesByLiterature(literatures);
+        return literatures.stream()
+                .map(item -> new AdminHotLiteratureResponse(
+                        item.getId(),
+                        item.getTitle(),
+                        item.getAuthor(),
+                        categoryName(item.getCategoryId(), categoryMap),
+                        item.getStatus(),
+                        item.getVisibility(),
+                        item.getReadCount() == null ? 0 : item.getReadCount(),
+                        item.getDownloadCount() == null ? 0 : item.getDownloadCount(),
+                        favoriteCounts.getOrDefault(item.getId(), 0L),
+                        noteCounts.getOrDefault(item.getId(), 0L)
+                ))
+                .toList();
+    }
+
+    private List<AdminActiveUserResponse> activeUsers(int limit) {
+        List<UserAccount> users = userAccountMapper.selectList(new LambdaQueryWrapper<UserAccount>()
+                .eq(UserAccount::getDeleted, 0)
+                .eq(UserAccount::getStatus, 1));
+        Map<Long, Long> uploadCounts = countLiteraturesByUploader();
+        Map<Long, Long> historyCounts = countReadingHistoriesByUser();
+        Map<Long, Long> favoriteCounts = countFavoritesByUser();
+        Map<Long, Long> noteCounts = countNotesByUser();
+        Map<Long, Long> qaCounts = countQaByUser();
+        return users.stream()
+                .map(user -> {
+                    long uploads = uploadCounts.getOrDefault(user.getId(), 0L);
+                    long histories = historyCounts.getOrDefault(user.getId(), 0L);
+                    long favorites = favoriteCounts.getOrDefault(user.getId(), 0L);
+                    long notes = noteCounts.getOrDefault(user.getId(), 0L);
+                    long qa = qaCounts.getOrDefault(user.getId(), 0L);
+                    long score = uploads * 5 + histories * 2 + favorites * 2 + notes * 3 + qa * 4;
+                    return new AdminActiveUserResponse(user.getId(), user.getUsername(), user.getNickname(), user.getRole(),
+                            uploads, histories, favorites, notes, qa, score);
+                })
+                .sorted(Comparator.comparingLong(AdminActiveUserResponse::activityScore).reversed())
+                .limit(limit)
+                .toList();
+    }
+
+    private List<AdminAiTaskHealthResponse> aiTaskHealth() {
+        List<AiTaskRecord> tasks = aiTaskRecordMapper.selectList(new LambdaQueryWrapper<AiTaskRecord>()
+                .eq(AiTaskRecord::getDeleted, 0));
+        return tasks.stream()
+                .collect(Collectors.groupingBy(item -> value(item.getTaskType(), "UNKNOWN")))
+                .entrySet()
+                .stream()
+                .map(entry -> toAiTaskHealth(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparingLong(AdminAiTaskHealthResponse::total).reversed())
+                .toList();
+    }
+
+    private AdminAiTaskHealthResponse toAiTaskHealth(String taskType, List<AiTaskRecord> tasks) {
+        long total = tasks.size();
+        long success = tasks.stream().filter(item -> "SUCCESS".equals(item.getStatus())).count();
+        long failed = tasks.stream().filter(item -> "FAILED".equals(item.getStatus())).count();
+        long timeout = tasks.stream().filter(item -> "TIMEOUT".equals(item.getStatus())).count();
+        long avgDuration = Math.round(tasks.stream()
+                .map(AiTaskRecord::getDurationMs)
+                .filter(Objects::nonNull)
+                .mapToLong(Long::longValue)
+                .average()
+                .orElse(0));
+        return new AdminAiTaskHealthResponse(taskType, total, success, failed, timeout, rate(success, total), avgDuration);
+    }
+
+    private long countUsers(String role, Integer status) {
+        return userAccountMapper.selectCount(new LambdaQueryWrapper<UserAccount>()
+                .eq(UserAccount::getDeleted, 0)
+                .eq(StringUtils.hasText(role), UserAccount::getRole, role)
+                .eq(status != null, UserAccount::getStatus, status));
+    }
+
+    private long countLiteratures(String status, String visibility) {
+        return literatureMapper.selectCount(new LambdaQueryWrapper<Literature>()
+                .eq(Literature::getDeleted, 0)
+                .eq(StringUtils.hasText(status), Literature::getStatus, status)
+                .eq(StringUtils.hasText(visibility), Literature::getVisibility, visibility));
+    }
+
+    private long countFiles() {
+        return fileMetadataMapper.selectCount(new LambdaQueryWrapper<FileMetadata>().eq(FileMetadata::getDeleted, 0));
+    }
+
+    private long sumFileSize() {
+        return fileMetadataMapper.selectList(new LambdaQueryWrapper<FileMetadata>().eq(FileMetadata::getDeleted, 0))
+                .stream()
+                .map(FileMetadata::getSizeBytes)
+                .filter(Objects::nonNull)
+                .mapToLong(Long::longValue)
+                .sum();
+    }
+
+    private long countFavorites() {
+        return favoriteMapper.selectCount(new LambdaQueryWrapper<LiteratureFavorite>().eq(LiteratureFavorite::getDeleted, 0));
+    }
+
+    private long countReadingHistories() {
+        return readingHistoryMapper.selectCount(new LambdaQueryWrapper<ReadingHistory>().eq(ReadingHistory::getDeleted, 0));
+    }
+
+    private long countReadingNotes() {
+        return readingNoteMapper.selectCount(new LambdaQueryWrapper<ReadingNote>().eq(ReadingNote::getDeleted, 0));
+    }
+
+    private long countQaRecords() {
+        return qaRecordMapper.selectCount(new LambdaQueryWrapper<LiteratureQaRecord>().eq(LiteratureQaRecord::getDeleted, 0));
+    }
+
+    private long countRagDocuments() {
+        return ragKnowledgeDocumentMapper.selectCount(new LambdaQueryWrapper<RagKnowledgeDocument>().eq(RagKnowledgeDocument::getDeleted, 0));
+    }
+
+    private long countAiTasks(String status) {
+        return aiTaskRecordMapper.selectCount(new LambdaQueryWrapper<AiTaskRecord>()
+                .eq(AiTaskRecord::getDeleted, 0)
+                .eq(StringUtils.hasText(status), AiTaskRecord::getStatus, status));
+    }
+
+    private Long avgAiDuration(String taskType) {
+        return Math.round(aiTaskRecordMapper.selectList(new LambdaQueryWrapper<AiTaskRecord>()
+                        .eq(AiTaskRecord::getDeleted, 0)
+                        .eq(StringUtils.hasText(taskType), AiTaskRecord::getTaskType, taskType))
+                .stream()
+                .map(AiTaskRecord::getDurationMs)
+                .filter(Objects::nonNull)
+                .mapToLong(Long::longValue)
+                .average()
+                .orElse(0));
+    }
+
+    private <T> LambdaQueryWrapper<T> createdAfter(com.baomidou.mybatisplus.core.toolkit.support.SFunction<T, LocalDateTime> column,
+                                                   com.baomidou.mybatisplus.core.toolkit.support.SFunction<T, Integer> deletedColumn,
+                                                   LocalDate start) {
+        return new LambdaQueryWrapper<T>()
+                .ge(column, start.atStartOfDay())
+                .eq(deletedColumn, 0);
+    }
+
+    private <T> LambdaQueryWrapper<T> updatedAfter(com.baomidou.mybatisplus.core.toolkit.support.SFunction<T, LocalDateTime> column,
+                                                   com.baomidou.mybatisplus.core.toolkit.support.SFunction<T, Integer> deletedColumn,
+                                                   LocalDate start) {
+        return new LambdaQueryWrapper<T>()
+                .ge(column, start.atStartOfDay())
+                .eq(deletedColumn, 0);
+    }
+
+    private <T> Map<LocalDate, Long> groupByDate(List<T> values, Function<T, LocalDateTime> timeGetter) {
+        return values.stream()
+                .map(timeGetter)
+                .filter(Objects::nonNull)
+                .collect(Collectors.groupingBy(LocalDateTime::toLocalDate, Collectors.counting()));
+    }
+
+    private Map<Long, Long> countFavoritesByLiterature(List<Literature> literatures) {
+        Set<Long> literatureIds = ids(literatures, Literature::getId);
+        if (literatureIds.isEmpty()) {
+            return Map.of();
+        }
+        return favoriteMapper.selectList(new LambdaQueryWrapper<LiteratureFavorite>()
+                        .eq(LiteratureFavorite::getDeleted, 0)
+                        .in(LiteratureFavorite::getLiteratureId, literatureIds))
+                .stream()
+                .collect(Collectors.groupingBy(LiteratureFavorite::getLiteratureId, Collectors.counting()));
+    }
+
+    private Map<Long, Long> countNotesByLiterature(List<Literature> literatures) {
+        Set<Long> literatureIds = ids(literatures, Literature::getId);
+        if (literatureIds.isEmpty()) {
+            return Map.of();
+        }
+        return readingNoteMapper.selectList(new LambdaQueryWrapper<ReadingNote>()
+                        .eq(ReadingNote::getDeleted, 0)
+                        .in(ReadingNote::getLiteratureId, literatureIds))
+                .stream()
+                .collect(Collectors.groupingBy(ReadingNote::getLiteratureId, Collectors.counting()));
+    }
+
+    private Map<Long, Long> countLiteraturesByUploader() {
+        return literatureMapper.selectList(new LambdaQueryWrapper<Literature>().eq(Literature::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(Literature::getUploaderId, Collectors.counting()));
+    }
+
+    private Map<Long, Long> countReadingHistoriesByUser() {
+        return readingHistoryMapper.selectList(new LambdaQueryWrapper<ReadingHistory>().eq(ReadingHistory::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(ReadingHistory::getUserId, Collectors.counting()));
+    }
+
+    private Map<Long, Long> countFavoritesByUser() {
+        return favoriteMapper.selectList(new LambdaQueryWrapper<LiteratureFavorite>().eq(LiteratureFavorite::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(LiteratureFavorite::getUserId, Collectors.counting()));
+    }
+
+    private Map<Long, Long> countNotesByUser() {
+        return readingNoteMapper.selectList(new LambdaQueryWrapper<ReadingNote>().eq(ReadingNote::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(ReadingNote::getUserId, Collectors.counting()));
+    }
+
+    private Map<Long, Long> countQaByUser() {
+        return qaRecordMapper.selectList(new LambdaQueryWrapper<LiteratureQaRecord>().eq(LiteratureQaRecord::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(LiteratureQaRecord::getUserId, Collectors.counting()));
+    }
+
+    private Set<Long> ids(List<Literature> literatures, Function<Literature, Long> getter) {
+        return literatures.stream().map(getter).filter(Objects::nonNull).collect(Collectors.toSet());
+    }
+
+    private String categoryName(Long categoryId, Map<Long, LiteratureCategory> categoryMap) {
+        if (categoryId == null) {
+            return "未分类";
+        }
+        LiteratureCategory category = categoryMap.get(categoryId);
+        return category == null ? "未分类" : category.getName();
+    }
+
+    private String value(String value, String fallback) {
+        return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    private double rate(long numerator, long denominator) {
+        if (denominator == 0) {
+            return 0;
+        }
+        return Math.round((numerator * 10000.0 / denominator)) / 100.0;
+    }
+
+    private int normalize(Integer value, int defaultValue, int maxValue) {
+        return Math.min(Math.max(value == null ? defaultValue : value, 1), maxValue);
+    }
+
+    private CurrentUser requireAdmin(String scenario) {
+        CurrentUser currentUser = CurrentUserProvider.require();
+        if (currentUser.getRole() != UserRole.ADMIN) {
+            log.warn("user role denied, scenario={}, userId={}, roleCode={}", scenario, currentUser.getId(), currentUser.getRoleCode());
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        return currentUser;
+    }
+}

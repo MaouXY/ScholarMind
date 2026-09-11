@@ -4,6 +4,7 @@ import com.maou.apptemplateapi.module.ai.service.AiClient;
 import com.maou.apptemplateapi.module.ai.service.AiImageInput;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -58,16 +59,28 @@ public class AiConfig {
                 properties.temperature()
         );
 
+        Duration timeout = Duration.ofSeconds(properties.timeoutSeconds() == null ? 20 : properties.timeoutSeconds());
+        double temperature = properties.temperature() == null ? 0.7 : properties.temperature();
+
         ChatModel chatModel = OpenAiChatModel.builder()
                 .baseUrl(properties.baseUrl())
                 .apiKey(properties.apiKey())
                 .modelName(properties.modelName())
-                .timeout(Duration.ofSeconds(properties.timeoutSeconds() == null ? 20 : properties.timeoutSeconds()))
-                .temperature(properties.temperature() == null ? 0.7 : properties.temperature())
+                .timeout(timeout)
+                .temperature(temperature)
+                .build();
+
+        ChatModel jsonChatModel = OpenAiChatModel.builder()
+                .baseUrl(properties.baseUrl())
+                .apiKey(properties.apiKey())
+                .modelName(properties.modelName())
+                .timeout(timeout)
+                .temperature(temperature)
+                .responseFormat(ResponseFormat.JSON)
                 .build();
 
         log.info("AI real client activated: LangChain4jAiClient");
-        return new LangChain4jAiClientImpl(chatModel);
+        return new LangChain4jAiClientImpl(chatModel, jsonChatModel);
     }
 
     private boolean isBlank(String value) {
@@ -82,6 +95,11 @@ public class AiConfig {
             }
 
             @Override
+            public String generateJson(String systemPrompt, String userPrompt) {
+                throw new IllegalStateException("AI client unavailable: " + reason);
+            }
+
+            @Override
             public String generateWithImages(String systemPrompt, String userPrompt, List<AiImageInput> images) {
                 throw new IllegalStateException("AI client unavailable: " + reason);
             }
@@ -91,15 +109,23 @@ public class AiConfig {
     private static final class LangChain4jAiClientImpl implements AiClient {
 
         private final ChatModel chatModel;
+        private final ChatModel jsonChatModel;
 
-        private LangChain4jAiClientImpl(ChatModel chatModel) {
+        private LangChain4jAiClientImpl(ChatModel chatModel, ChatModel jsonChatModel) {
             this.chatModel = chatModel;
+            this.jsonChatModel = jsonChatModel;
         }
 
         @Override
         public String generate(String systemPrompt, String userPrompt) {
             String mergedPrompt = systemPrompt + System.lineSeparator() + System.lineSeparator() + userPrompt;
             return chatModel.chat(mergedPrompt);
+        }
+
+        @Override
+        public String generateJson(String systemPrompt, String userPrompt) {
+            String mergedPrompt = systemPrompt + System.lineSeparator() + System.lineSeparator() + userPrompt;
+            return jsonChatModel.chat(mergedPrompt);
         }
 
         @Override
