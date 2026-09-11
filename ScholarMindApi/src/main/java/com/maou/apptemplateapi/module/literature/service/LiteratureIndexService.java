@@ -6,6 +6,7 @@ import com.maou.apptemplateapi.common.exception.BusinessException;
 import com.maou.apptemplateapi.common.exception.ErrorCode;
 import com.maou.apptemplateapi.common.security.CurrentUser;
 import com.maou.apptemplateapi.common.security.CurrentUserProvider;
+import com.maou.apptemplateapi.module.literature.dto.LiteratureChunkResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureIndexResponse;
 import com.maou.apptemplateapi.module.literature.entity.Literature;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureChunk;
@@ -75,6 +76,27 @@ public class LiteratureIndexService {
                     literatureId, currentUser.getId(), exception);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "literature index failed");
         }
+    }
+
+    /**
+     * 在线阅读使用的正文分块列表：先做可读权限校验，再按 chunkIndex 顺序返回已启用分块。
+     */
+    public List<LiteratureChunkResponse> listChunks(Long literatureId) {
+        CurrentUser currentUser = CurrentUserProvider.require();
+        literatureService.requireReadableLiterature(literatureId, currentUser, "literature-chunk-list");
+        List<LiteratureChunkResponse> chunks = listEnabledChunks(literatureId).stream()
+                .map(chunk -> new LiteratureChunkResponse(
+                        chunk.getId(),
+                        chunk.getLiteratureId(),
+                        chunk.getChunkIndex(),
+                        chunk.getPageNo(),
+                        chunk.getChunkText(),
+                        chunk.getTokenCount(),
+                        chunk.getVectorStoreStatus()))
+                .toList();
+        log.info("literature chunks listed, scenario=literature-chunk-list, literatureId={}, userId={}, chunkCount={}",
+                literatureId, currentUser.getId(), chunks.size());
+        return chunks;
     }
 
     public List<LiteratureChunk> listEnabledChunks(Long literatureId) {

@@ -2,14 +2,18 @@ package com.maou.apptemplateapi.module.literature.controller;
 
 import com.maou.apptemplateapi.common.result.ApiResponse;
 import com.maou.apptemplateapi.common.result.PageResult;
+import com.maou.apptemplateapi.module.literature.dto.LiteratureChunkResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureDetailResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureRequest;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureResponse;
 import com.maou.apptemplateapi.module.literature.service.LiteratureDetailService;
+import com.maou.apptemplateapi.module.literature.service.LiteratureIndexService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -18,6 +22,7 @@ public class LiteratureController {
 
     private final LiteratureService literatureService;
     private final LiteratureDetailService literatureDetailService;
+    private final LiteratureIndexService literatureIndexService;
 
     @GetMapping
     public ApiResponse<PageResult<LiteratureResponse>> list(
@@ -38,6 +43,11 @@ public class LiteratureController {
     @GetMapping("/{id}/view")
     public ApiResponse<LiteratureDetailResponse> detailView(@PathVariable Long id) {
         return ApiResponse.success(literatureDetailService.detailView(id));
+    }
+
+    @GetMapping("/{id}/chunks")
+    public ApiResponse<List<LiteratureChunkResponse>> chunks(@PathVariable Long id) {
+        return ApiResponse.success(literatureIndexService.listChunks(id));
     }
 
     @PostMapping

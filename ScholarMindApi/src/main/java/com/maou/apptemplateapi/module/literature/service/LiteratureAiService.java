@@ -18,9 +18,11 @@ import com.maou.apptemplateapi.module.literature.dto.*;
 import com.maou.apptemplateapi.module.literature.entity.Literature;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureChunk;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureQaRecord;
+import com.maou.apptemplateapi.module.literature.entity.LiteratureSearchLog;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureChunkMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureQaRecordMapper;
+import com.maou.apptemplateapi.module.literature.mapper.LiteratureSearchLogMapper;
 import com.maou.apptemplateapi.module.rag.dto.RagChunkResponse;
 import com.maou.apptemplateapi.module.rag.service.RagRerankService;
 import lombok.RequiredArgsConstructor;
@@ -50,6 +52,7 @@ public class LiteratureAiService {
     private final LiteratureMapper literatureMapper;
     private final LiteratureChunkMapper chunkMapper;
     private final LiteratureQaRecordMapper qaRecordMapper;
+    private final LiteratureSearchLogMapper searchLogMapper;
     private final LiteratureService literatureService;
     private final LiteratureIndexService literatureIndexService;
     private final RagRerankService ragRerankService;
@@ -93,6 +96,12 @@ public class LiteratureAiService {
 
     public LiteratureSearchResponse semanticSearch(LiteratureSearchRequest request) {
         CurrentUser currentUser = CurrentUserProvider.require();
+        LiteratureSearchResponse response = doSemanticSearch(request, currentUser);
+        recordSearchLog(currentUser, request.query(), splitKeywords(request.query()), "SEMANTIC", request.categoryId(), response);
+        return response;
+    }
+
+    private LiteratureSearchResponse doSemanticSearch(LiteratureSearchRequest request, CurrentUser currentUser) {
         List<LiteratureReferenceChunkResponse> references = searchChunks(request.query(), request.categoryId(), request.limit(), "literature-semantic-search");
         List<Long> literatureIds = references.stream().map(LiteratureReferenceChunkResponse::literatureId).distinct().toList();
         List<LiteratureResponse> literatures = literatureIds.isEmpty()
@@ -108,6 +117,7 @@ public class LiteratureAiService {
         CurrentUser currentUser = CurrentUserProvider.require();
         String parsedIntent;
         String semanticQuery;
+        List<String> keywords;
         try {
             StructuredAiResult<StructuredSearchIntent> result = structuredAiService.generate(new StructuredAiSpec<>(
                     currentUser.getOrganizationId(),
@@ -124,17 +134,59 @@ public class LiteratureAiService {
             ));
             parsedIntent = writeStructuredJson(result.value(), TASK_SEARCH_PARSE, currentUser.getId(), result.taskId());
             semanticQuery = toSearchQuery(result.value());
+            keywords = result.value().keywords();
             log.info("literature natural search intent parsed, scenario=literature-natural-search, userId={}, taskId={}, attemptCount={}, repaired={}, fallbackUsed={}, query={}",
                     currentUser.getId(), result.taskId(), result.attemptCount(), result.repaired(), result.fallbackUsed(), request.query());
         } catch (RuntimeException exception) {
             StructuredSearchIntent fallback = fallbackSearchIntent(request.query());
             parsedIntent = writeStructuredJson(fallback, TASK_SEARCH_PARSE, currentUser.getId(), null);
             semanticQuery = toSearchQuery(fallback);
+            keywords = fallback.keywords();
             log.error("literature natural search parse unexpected failed, scenario=literature-natural-search, userId={}, query={}, fallbackUsed=true",
                     currentUser.getId(), request.query(), exception);
         }
-        LiteratureSearchResponse semantic = semanticSearch(new LiteratureSearchRequest(semanticQuery, request.categoryId(), request.limit()));
+        LiteratureSearchResponse semantic = doSemanticSearch(new LiteratureSearchRequest(semanticQuery, request.categoryId(), request.limit()), currentUser);
+        recordSearchLog(currentUser, request.query(), keywords, "NATURAL_LANGUAGE", request.categoryId(), semantic);
         return new LiteratureSearchResponse(request.query(), semantic.literatures(), semantic.references(), parsedIntent);
+    }
+
+    private void recordSearchLog(CurrentUser currentUser,
+                                 String query,
+                                 List<String> keywords,
+                                 String searchType,
+                                 Long categoryId,
+                                 LiteratureSearchResponse response) {
+        try {
+            LiteratureSearchLog searchLog = new LiteratureSearchLog();
+            searchLog.setUserId(currentUser.getId());
+            searchLog.setOrganizationId(currentUser.getOrganizationId());
+            searchLog.setQueryText(truncateText(query, 480));
+            searchLog.setKeywords(keywords == null || keywords.isEmpty() ? null : truncateText(String.join(",", keywords), 480));
+            searchLog.setSearchType(searchType);
+            searchLog.setCategoryId(categoryId);
+            searchLog.setResultCount(response.literatures() == null ? 0 : response.literatures().size());
+            searchLog.setReferenceCount(response.references() == null ? 0 : response.references().size());
+            searchLog.setIntentParsed(keywords == null || keywords.isEmpty() ? 0 : 1);
+            searchLogMapper.insert(searchLog);
+            log.info("literature search logged, scenario=literature-search-log, userId={}, searchType={}, categoryId={}, resultCount={}, referenceCount={}, keywordCount={}",
+                    currentUser.getId(), searchType, categoryId, searchLog.getResultCount(), searchLog.getReferenceCount(),
+                    keywords == null ? 0 : keywords.size());
+        } catch (RuntimeException exception) {
+            log.error("literature search log write failed, scenario=literature-search-log, userId={}, searchType={}",
+                    currentUser.getId(), searchType, exception);
+        }
+    }
+
+    private List<String> splitKeywords(String text) {
+        if (!StringUtils.hasText(text)) {
+            return List.of();
+        }
+        return Arrays.stream(text.split("[\\s,.;，。；、]+"))
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .limit(8)
+                .toList();
     }
 
     @Transactional

@@ -37,6 +37,9 @@ public class AdminStatisticsService {
     private static final int MAX_DAYS = 30;
     private static final int DEFAULT_LIMIT = 8;
     private static final int MAX_LIMIT = 20;
+    private static final int DEFAULT_KEYWORD_DAYS = 30;
+    private static final int DEFAULT_KEYWORD_LIMIT = 20;
+    private static final int MAX_KEYWORD_LIMIT = 50;
 
     private final UserAccountMapper userAccountMapper;
     private final LiteratureMapper literatureMapper;
@@ -48,6 +51,7 @@ public class AdminStatisticsService {
     private final FileMetadataMapper fileMetadataMapper;
     private final AiTaskRecordMapper aiTaskRecordMapper;
     private final RagKnowledgeDocumentMapper ragKnowledgeDocumentMapper;
+    private final LiteratureSearchLogMapper searchLogMapper;
 
     public AdminDashboardResponse dashboard(Integer days, Integer limit) {
         CurrentUser admin = requireAdmin("admin-statistics-dashboard");
@@ -66,6 +70,94 @@ public class AdminStatisticsService {
         log.info("admin statistics dashboard queried, scenario=admin-statistics-dashboard, adminId={}, days={}, limit={}",
                 admin.getId(), normalizedDays, normalizedLimit);
         return response;
+    }
+
+    /**
+     * 热门关键词统计：汇总“文献标签热度 + 检索行为热度 + 问答提问命中热度”。
+     * 关键词词表来自文献 keywords 字段与检索日志的解析关键词，问答热度按该词表在窗口内提问中的命中次数计算。
+     */
+    public List<AdminKeywordStatResponse> keywords(Integer days, Integer limit) {
+        CurrentUser admin = requireAdmin("admin-statistics-keywords");
+        int normalizedDays = normalize(days, DEFAULT_KEYWORD_DAYS, MAX_DAYS);
+        int normalizedLimit = normalize(limit, DEFAULT_KEYWORD_LIMIT, MAX_KEYWORD_LIMIT);
+        LocalDate start = LocalDate.now().minusDays(normalizedDays - 1L);
+
+        Map<String, KeywordCounter> counters = new LinkedHashMap<>();
+        List<Literature> literatures = literatureMapper.selectList(new LambdaQueryWrapper<Literature>()
+                .eq(Literature::getDeleted, 0));
+        for (Literature literature : literatures) {
+            for (String keyword : splitKeywords(literature.getKeywords())) {
+                counters.computeIfAbsent(keyword, KeywordCounter::new).literatureCount++;
+            }
+        }
+
+        List<LiteratureSearchLog> searchLogs = searchLogMapper.selectList(new LambdaQueryWrapper<LiteratureSearchLog>()
+                .eq(LiteratureSearchLog::getDeleted, 0)
+                .ge(LiteratureSearchLog::getCreatedAt, start.atStartOfDay()));
+        for (LiteratureSearchLog searchLog : searchLogs) {
+            for (String keyword : splitKeywords(searchLog.getKeywords())) {
+                counters.computeIfAbsent(keyword, KeywordCounter::new).searchCount++;
+            }
+        }
+
+        List<LiteratureQaRecord> qaRecords = qaRecordMapper.selectList(new LambdaQueryWrapper<LiteratureQaRecord>()
+                .eq(LiteratureQaRecord::getDeleted, 0)
+                .ge(LiteratureQaRecord::getCreatedAt, start.atStartOfDay()));
+        if (!qaRecords.isEmpty() && !counters.isEmpty()) {
+            List<String> questions = qaRecords.stream()
+                    .map(LiteratureQaRecord::getQuestion)
+                    .filter(StringUtils::hasText)
+                    .map(item -> item.toLowerCase(Locale.ROOT))
+                    .toList();
+            for (Map.Entry<String, KeywordCounter> entry : counters.entrySet()) {
+                for (String question : questions) {
+                    if (question.contains(entry.getKey())) {
+                        entry.getValue().qaCount++;
+                    }
+                }
+            }
+        }
+
+        List<AdminKeywordStatResponse> result = counters.values().stream()
+                .map(KeywordCounter::toResponse)
+                .sorted(Comparator.comparingLong((AdminKeywordStatResponse item) -> item.total())
+                        .reversed()
+                        .thenComparing(AdminKeywordStatResponse::keyword))
+                .limit(normalizedLimit)
+                .toList();
+        log.info("admin keyword statistics queried, scenario=admin-statistics-keywords, adminId={}, days={}, limit={}, keywordTotal={}, literatureTotal={}, searchLogTotal={}, qaRecordTotal={}",
+                admin.getId(), normalizedDays, normalizedLimit, counters.size(), literatures.size(), searchLogs.size(), qaRecords.size());
+        return result;
+    }
+
+    private List<String> splitKeywords(String text) {
+        if (!StringUtils.hasText(text)) {
+            return List.of();
+        }
+        return Arrays.stream(text.split("[\\s,，;；、/|]+"))
+                .filter(StringUtils::hasText)
+                .map(item -> item.trim().toLowerCase(Locale.ROOT))
+                .filter(item -> item.length() >= 2 && item.length() <= 32)
+                .distinct()
+                .limit(10)
+                .toList();
+    }
+
+    private static final class KeywordCounter {
+
+        private final String keyword;
+        private long literatureCount;
+        private long searchCount;
+        private long qaCount;
+
+        private KeywordCounter(String keyword) {
+            this.keyword = keyword;
+        }
+
+        private AdminKeywordStatResponse toResponse() {
+            return new AdminKeywordStatResponse(keyword, (int) literatureCount, (int) searchCount, (int) qaCount,
+                    (int) (literatureCount + searchCount + qaCount));
+        }
     }
 
     private AdminOverviewResponse overview() {
