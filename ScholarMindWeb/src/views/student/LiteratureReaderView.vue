@@ -22,6 +22,7 @@ import {
   createReadingNote,
   deleteReadingNote,
   favoriteLiterature,
+  getLiteratureDownload,
   getLiteratureView,
   getReadingHistory,
   listLiteratureChunks,
@@ -31,6 +32,7 @@ import {
   unfavoriteLiterature,
   updateReadingNote,
 } from '@/api/literature'
+import { downloadReadingNotes, openLiteratureFile } from '@/utils/download'
 import { displayCategoryName } from '@/utils/format'
 import type {
   Id,
@@ -66,6 +68,11 @@ const favoriteLoading = ref(false)
 const indexBuilding = ref(false)
 const loadFailed = ref(false)
 const favorited = ref(false)
+
+// 原文下载 / 笔记导出：走 blob + Authorization 专用通道
+const downloadLoading = ref(false)
+const noteExporting = ref(false)
+const downloadCount = ref<number | null>(null)
 
 const noteDrawerVisible = ref(false)
 const noteMode = ref<'create' | 'edit'>('create')
@@ -139,14 +146,21 @@ function splitParagraphs(content: string) {
 
 // 当前所在分块序号（从 0 开始，取 chunkIndex 的实际值）
 const currentChunk = computed(() =>
-  Math.min(Math.max(currentChunkIndex.value, 0), Math.max(totalChunks.value - 1, 0)),
+  Math.min(
+    Math.max(currentChunkIndex.value, 0),
+    Math.max(totalChunks.value - 1, 0),
+  ),
 )
 
 // 进度按「当前分块在有序列表中的位置 / 总分块数」换算，不依赖 chunkIndex 是否连续
 const progressPercent = computed(() => {
   if (!totalChunks.value) return 0
-  const position = orderedChunks.value.findIndex((chunk) => chunk.chunkIndex === currentChunk.value)
-  return Math.round(((position < 0 ? 0 : position + 1) / totalChunks.value) * 100)
+  const position = orderedChunks.value.findIndex(
+    (chunk) => chunk.chunkIndex === currentChunk.value,
+  )
+  return Math.round(
+    ((position < 0 ? 0 : position + 1) / totalChunks.value) * 100,
+  )
 })
 
 const savedProgressText = computed(() => {
@@ -166,10 +180,16 @@ const hasChunks = computed(() => totalChunks.value > 0)
 const fallbackBlocks = computed(() => {
   const blocks: { title: string; content: string }[] = []
   if (literature.value?.abstractText?.trim()) {
-    blocks.push({ title: '摘要', content: literature.value.abstractText.trim() })
+    blocks.push({
+      title: '摘要',
+      content: literature.value.abstractText.trim(),
+    })
   }
   if (literature.value?.aiSummary?.trim()) {
-    blocks.push({ title: 'AI 摘要', content: literature.value.aiSummary.trim() })
+    blocks.push({
+      title: 'AI 摘要',
+      content: literature.value.aiSummary.trim(),
+    })
   }
   if (keywordTokens.value.length) {
     blocks.push({ title: '关键词', content: keywordTokens.value.join(' / ') })
@@ -184,7 +204,7 @@ function statusLabel(status?: Literature['status']) {
     PUBLISHED: '已发布',
     REJECTED: '已退回',
   }
-  return status ? labels[status] ?? status : '未知状态'
+  return status ? (labels[status] ?? status) : '未知状态'
 }
 
 function resetNoteForm() {
@@ -351,7 +371,11 @@ async function loadNotes() {
 
   notesLoading.value = true
   try {
-    const result = await listReadingNotes({ literatureId: id, page: 1, size: 20 })
+    const result = await listReadingNotes({
+      literatureId: id,
+      page: 1,
+      size: 20,
+    })
     notes.value = result.items
   } catch (error) {
     console.error(
@@ -396,7 +420,9 @@ async function saveProgress() {
   if (!id) return
 
   // lastPage 存「当前分块序号 + 1」，无分块时沿用已保存值
-  const lastPage = hasChunks.value ? currentChunk.value + 1 : readingState.lastPage
+  const lastPage = hasChunks.value
+    ? currentChunk.value + 1
+    : readingState.lastPage
 
   progressSaving.value = true
   try {
@@ -407,7 +433,9 @@ async function saveProgress() {
     })
     history.value = result
     readingState.lastPage = result?.lastPage ?? lastPage
-    ElMessage.success(`阅读进度已保存（第 ${lastPage} 块 · ${progressPercent.value}%）`)
+    ElMessage.success(
+      `阅读进度已保存（第 ${lastPage} 块 · ${progressPercent.value}%）`,
+    )
   } catch (error) {
     console.error(
       'reading history save failed, scenario=reading-history-upsert, literatureId=%s, lastPage=%s, progress=%s, readDuration=%s',
@@ -498,11 +526,15 @@ async function saveNote() {
 
 async function removeNote(note: ReadingNote) {
   try {
-    await ElMessageBox.confirm('删除后不可恢复，确认删除这条阅读笔记？', '删除笔记', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
+    await ElMessageBox.confirm(
+      '删除后不可恢复，确认删除这条阅读笔记？',
+      '删除笔记',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
     await deleteReadingNote(note.id)
     ElMessage.success('笔记已删除')
     await loadNotes()
@@ -519,6 +551,64 @@ async function removeNote(note: ReadingNote) {
 
 function goDetail() {
   router.push(`/student/literature/${literatureId.value}`)
+}
+
+/** 业务错误码 14107：该文献未绑定原文文件 */
+function isMissingFileError(error: unknown) {
+  const target = error as { code?: number; message?: string } | null
+  return target?.code === 14107 || (target?.message ?? '').includes('14107')
+}
+
+/** 换取 RustFS 预签名地址后打开原文 */
+async function downloadLiterature() {
+  const id = literatureId.value
+  if (!id) return
+
+  downloadLoading.value = true
+  try {
+    const ticket = await getLiteratureDownload(id)
+    await openLiteratureFile(ticket)
+    downloadCount.value = ticket.downloadCount
+    if (literature.value) {
+      literature.value = {
+        ...literature.value,
+        downloadCount: ticket.downloadCount,
+      }
+    }
+    ElMessage.success(`已开始下载：${ticket.fileName}`)
+  } catch (error) {
+    console.error(
+      'literature download failed, scenario=literature-download, literatureId=%s',
+      id,
+      error,
+    )
+    if (isMissingFileError(error)) {
+      ElMessage.warning('该文献未绑定原文文件，可联系上传者补充附件')
+    }
+  } finally {
+    downloadLoading.value = false
+  }
+}
+
+/** 导出本篇阅读笔记（GET /notes/export?literatureId=<id>） */
+async function exportNotes() {
+  const id = literatureId.value
+  if (!id) return
+
+  noteExporting.value = true
+  try {
+    const fileName = await downloadReadingNotes(id)
+    ElMessage.success(`已导出本篇笔记：${fileName}`)
+  } catch (error) {
+    console.error(
+      'reading notes export failed, scenario=reading-note-export, literatureId=%s',
+      id,
+      error,
+    )
+    ElMessage.error('导出笔记失败，请稍后重试')
+  } finally {
+    noteExporting.value = false
+  }
 }
 
 function goQa() {
@@ -565,17 +655,28 @@ onUnmounted(() => {
       <el-skeleton :rows="10" animated />
     </section>
 
-    <section v-else-if="loadFailed || !literature" class="reader-surface" aria-label="阅读页异常">
+    <section
+      v-else-if="loadFailed || !literature"
+      class="reader-surface"
+      aria-label="阅读页异常"
+    >
       <el-empty description="文献加载失败或不存在，请返回文献库重新选择">
         <div class="detail-actions">
-          <el-button :icon="Refresh" type="primary" @click="loadChunks">重新加载</el-button>
-          <el-button :icon="ArrowLeft" plain @click="goLibrary">返回文献库</el-button>
+          <el-button :icon="Refresh" type="primary" @click="loadChunks"
+            >重新加载</el-button
+          >
+          <el-button :icon="ArrowLeft" plain @click="goLibrary"
+            >返回文献库</el-button
+          >
         </div>
       </el-empty>
     </section>
 
     <template v-else>
-      <section class="reader-surface reader-surface--stage3" aria-label="在线阅读">
+      <section
+        class="reader-surface reader-surface--stage3"
+        aria-label="在线阅读"
+      >
         <div class="reader-toolbar">
           <el-button
             :icon="favorited ? StarFilled : Star"
@@ -586,8 +687,12 @@ onUnmounted(() => {
           >
             {{ favorited ? '已收藏' : '收藏' }}
           </el-button>
-          <el-button :icon="ArrowLeft" plain @click="goDetail">返回详情</el-button>
-          <el-button :icon="ChatLineRound" plain @click="goQa">去问答</el-button>
+          <el-button :icon="ArrowLeft" plain @click="goDetail"
+            >返回详情</el-button
+          >
+          <el-button :icon="ChatLineRound" plain @click="goQa"
+            >去问答</el-button
+          >
           <el-button
             :icon="Timer"
             plain
@@ -597,14 +702,47 @@ onUnmounted(() => {
           >
             保存进度
           </el-button>
-          <el-button :icon="Notebook" plain @click="openNoteCreate">新建笔记</el-button>
-          <el-button :icon="Cpu" plain :loading="indexBuilding" @click="rebuildIndexAndReload">
+          <el-button :icon="Notebook" plain @click="openNoteCreate"
+            >新建笔记</el-button
+          >
+          <el-button
+            :icon="Download"
+            plain
+            :loading="downloadLoading"
+            @click="downloadLiterature"
+          >
+            下载原文
+          </el-button>
+          <el-button
+            :icon="Document"
+            plain
+            :loading="noteExporting"
+            @click="exportNotes"
+          >
+            导出本篇笔记
+          </el-button>
+          <el-button
+            :icon="Cpu"
+            plain
+            :loading="indexBuilding"
+            @click="rebuildIndexAndReload"
+          >
             重建索引并刷新
           </el-button>
-          <el-button :icon="Refresh" plain :loading="chunkLoading" @click="fetchChunks()">
+          <el-button
+            :icon="Refresh"
+            plain
+            :loading="chunkLoading"
+            @click="fetchChunks()"
+          >
             刷新分块
           </el-button>
-          <el-button :icon="Refresh" plain :loading="historyLoading" @click="refreshHistory">
+          <el-button
+            :icon="Refresh"
+            plain
+            :loading="historyLoading"
+            @click="refreshHistory"
+          >
             刷新进度
           </el-button>
         </div>
@@ -648,20 +786,34 @@ onUnmounted(() => {
                 <span>本次时长</span>
                 <strong>{{ elapsedText }}</strong>
               </div>
+              <div>
+                <span>下载次数</span>
+                <strong>{{
+                  downloadCount ?? literature.downloadCount ?? 0
+                }}</strong>
+              </div>
             </section>
 
             <section class="reader-section" v-if="literature.abstractText">
               <h3>摘要</h3>
-              <p v-for="(paragraph, index) in abstractBlocks" :key="index">{{ paragraph }}</p>
+              <p v-for="(paragraph, index) in abstractBlocks" :key="index">
+                {{ paragraph }}
+              </p>
             </section>
 
             <section class="reader-section">
               <h3>AI 摘要</h3>
-              <p>{{ literature.aiSummary || '暂无 AI 摘要，可在文献详情页生成。' }}</p>
+              <p>
+                {{
+                  literature.aiSummary || '暂无 AI 摘要，可在文献详情页生成。'
+                }}
+              </p>
             </section>
 
             <section class="keyword-ribbon" v-if="keywordTokens.length">
-              <span v-for="token in keywordTokens" :key="token">{{ token }}</span>
+              <span v-for="token in keywordTokens" :key="token">{{
+                token
+              }}</span>
             </section>
 
             <section class="reader-section">
@@ -675,7 +827,11 @@ onUnmounted(() => {
               </p>
             </section>
 
-            <section v-if="hasChunks" class="chunk-list" :class="{ 'is-busy': chunkLoading }">
+            <section
+              v-if="hasChunks"
+              class="chunk-list"
+              :class="{ 'is-busy': chunkLoading }"
+            >
               <article
                 v-for="item in visibleChunks"
                 :id="`chunk-${item.id}`"
@@ -687,15 +843,25 @@ onUnmounted(() => {
                 <header class="chunk-card__head">
                   <div class="chunk-card__meta">
                     <strong>#{{ item.chunkIndex }}</strong>
-                    <span v-if="item.pageNo !== null">第 {{ item.pageNo }} 页</span>
-                    <span v-if="item.tokenCount !== null">{{ item.tokenCount }} tokens</span>
+                    <span v-if="item.pageNo !== null"
+                      >第 {{ item.pageNo }} 页</span
+                    >
+                    <span v-if="item.tokenCount !== null"
+                      >{{ item.tokenCount }} tokens</span
+                    >
                   </div>
-                  <el-tag v-if="item.chunkIndex === currentChunk" size="small" type="success">
+                  <el-tag
+                    v-if="item.chunkIndex === currentChunk"
+                    size="small"
+                    type="success"
+                  >
                     正在阅读
                   </el-tag>
                 </header>
                 <div class="chunk-card__body">
-                  <p v-for="(paragraph, index) in item.paragraphs" :key="index">{{ paragraph }}</p>
+                  <p v-for="(paragraph, index) in item.paragraphs" :key="index">
+                    {{ paragraph }}
+                  </p>
                   <p v-if="!item.paragraphs.length" class="reader-leaf__note">
                     该分块内容为空或仅包含空白字符。
                   </p>
@@ -704,7 +870,11 @@ onUnmounted(() => {
             </section>
 
             <section v-else class="reading-grid">
-              <div v-for="block in fallbackBlocks" :key="block.title" class="reader-leaf">
+              <div
+                v-for="block in fallbackBlocks"
+                :key="block.title"
+                class="reader-leaf"
+              >
                 <h3>{{ block.title }}</h3>
                 <p>{{ block.content }}</p>
               </div>
@@ -718,8 +888,8 @@ onUnmounted(() => {
 
             <section v-if="hasChunks" class="chunk-pager">
               <div class="chunk-pager__info">
-                已显示 {{ visibleChunks.length }} / {{ totalChunks }} 块（第 {{ chunkPage }} /
-                {{ chunkTotalPages }} 屏）
+                已显示 {{ visibleChunks.length }} / {{ totalChunks }} 块（第
+                {{ chunkPage }} / {{ chunkTotalPages }} 屏）
               </div>
               <div class="chunk-pager__actions">
                 <el-button
@@ -754,7 +924,9 @@ onUnmounted(() => {
                 <a :href="literature.fileUrl" target="_blank" rel="noreferrer">
                   <el-button :icon="Document" plain>打开原文</el-button>
                 </a>
-                <el-button :icon="Download" plain @click="goDetail">在详情页查看文件信息</el-button>
+                <el-button :icon="Download" plain @click="goDetail"
+                  >在详情页查看文件信息</el-button
+                >
               </div>
             </section>
 
@@ -766,7 +938,12 @@ onUnmounted(() => {
                 </div>
                 <span>{{ progressPercent }}%</span>
               </div>
-              <el-slider :model-value="progressPercent" :min="0" :max="100" disabled />
+              <el-slider
+                :model-value="progressPercent"
+                :min="0"
+                :max="100"
+                disabled
+              />
               <div class="history-inputs">
                 <el-input-number
                   v-model="lastPageModel"
@@ -777,7 +954,10 @@ onUnmounted(() => {
                 <span>分块序号 + 1（保存值）</span>
               </div>
               <div class="progress-live">
-                <span>当前第 {{ hasChunks ? currentChunk : '—' }} 块 / 共 {{ totalChunks }} 块</span>
+                <span
+                  >当前第 {{ hasChunks ? currentChunk : '—' }} 块 / 共
+                  {{ totalChunks }} 块</span
+                >
                 <span>累计阅读时长：{{ elapsedText }}</span>
                 <span>{{ savedProgressText }}</span>
               </div>
@@ -823,8 +1003,12 @@ onUnmounted(() => {
                 @click="jumpToChunk(item.chunkIndex)"
               >
                 <span>#{{ item.chunkIndex }}</span>
-                <small v-if="item.pageNo !== null">第 {{ item.pageNo }} 页</small>
-                <small v-if="item.tokenCount !== null">{{ item.tokenCount }} tokens</small>
+                <small v-if="item.pageNo !== null"
+                  >第 {{ item.pageNo }} 页</small
+                >
+                <small v-if="item.tokenCount !== null"
+                  >{{ item.tokenCount }} tokens</small
+                >
                 <em>{{ item.paragraphs[0]?.slice(0, 28) || '（空分块）' }}</em>
               </button>
             </div>
@@ -852,19 +1036,25 @@ onUnmounted(() => {
               <el-icon><List /></el-icon>
               第 {{ hasChunks ? currentChunk : '—' }} 块
             </el-tag>
-            <el-button :icon="Collection" plain @click="openNoteCreate">添加笔记</el-button>
+            <el-button :icon="Collection" plain @click="openNoteCreate"
+              >添加笔记</el-button
+            >
           </div>
         </div>
         <div class="note-list" v-if="notes.length" v-loading="notesLoading">
           <article v-for="note in notes" :key="note.id" class="note-card">
             <div>
-              <el-tag v-if="note.aiGenerated" size="small" type="success">AI</el-tag>
+              <el-tag v-if="note.aiGenerated" size="small" type="success"
+                >AI</el-tag
+              >
               <h4>{{ note.title }}</h4>
               <p>{{ note.content }}</p>
             </div>
             <div class="note-actions">
               <el-button text @click="openNoteEdit(note)">编辑</el-button>
-              <el-button text type="danger" @click="removeNote(note)">删除</el-button>
+              <el-button text type="danger" @click="removeNote(note)"
+                >删除</el-button
+              >
             </div>
           </article>
         </div>

@@ -164,6 +164,7 @@ export interface ReadingHistoryPayload {
 export interface ReadingNote {
   id: Id
   literatureId: Id
+  literatureTitle?: string | null
   title: string
   content: string
   aiGenerated?: number
@@ -181,7 +182,39 @@ export interface ReadingNotePayload {
 export interface Favorite {
   id: Id
   literatureId: Id
+  literatureTitle: string
+  author?: string | null
+  categoryName?: string | null
+  status?: string | null
+  visibility?: string | null
+  readCount: number
   createdAt?: string
+}
+
+/** 我的书房 · 阅读历史列表项（GET /reading-history） */
+export interface ReadingHistoryItem {
+  id: Id
+  literatureId: Id
+  literatureTitle: string
+  author?: string | null
+  categoryName?: string | null
+  status?: string | null
+  visibility?: string | null
+  lastPage: number
+  progress: number
+  readDuration: number
+  updatedAt?: string
+}
+
+/** 文献原文下载票据（GET /literatures/{id}/download），url 为 RustFS 预签名地址 */
+export interface LiteratureDownloadTicket {
+  literatureId: Id
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  url: string
+  expiresInSeconds: number
+  downloadCount: number
 }
 
 export interface LiteratureDetail {

@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 public record ReadingNoteResponse(
         Long id,
         Long literatureId,
+        String literatureTitle,
         String title,
         String content,
         Integer aiGenerated,

@@ -8,6 +8,7 @@ import type {
   LiteratureComparePayload,
   LiteratureCompareResult,
   LiteratureDetail,
+  LiteratureDownloadTicket,
   LiteratureIndexResult,
   LiteraturePayload,
   LiteratureQuestionPayload,
@@ -18,6 +19,7 @@ import type {
   LiteratureSummaryResult,
   PageResult,
   ReadingHistory,
+  ReadingHistoryItem,
   ReadingHistoryPayload,
   ReadingNote,
   ReadingNotePayload,
@@ -62,7 +64,10 @@ export function markLiteratureRead(id: Id) {
 }
 
 export function semanticSearch(payload: LiteratureSearchPayload) {
-  return request.post<never, LiteratureSearchResult>('/search/semantic', payload)
+  return request.post<never, LiteratureSearchResult>(
+    '/search/semantic',
+    payload,
+  )
 }
 
 export function naturalLanguageSearch(payload: LiteratureSearchPayload) {
@@ -116,6 +121,21 @@ export function getReadingHistory(literatureId: Id) {
   return request.get<never, ReadingHistory>(`/reading-history/${literatureId}`)
 }
 
+/** 我的书房 · 阅读历史分页列表（GET /reading-history） */
+export function listReadingHistory(params: { page: number; size: number }) {
+  return request.get<never, PageResult<ReadingHistoryItem>>(
+    '/reading-history',
+    { params },
+  )
+}
+
+/** 换取文献原文的 RustFS 预签名下载票据（GET /literatures/{id}/download） */
+export function getLiteratureDownload(id: Id) {
+  return request.get<never, LiteratureDownloadTicket>(
+    `/literatures/${id}/download`,
+  )
+}
+
 export function saveReadingHistory(
   literatureId: Id,
   payload: ReadingHistoryPayload,
@@ -163,9 +183,12 @@ export function listCategories() {
 }
 
 export function listPendingLiteratures(params: { page: number; size: number }) {
-  return request.get<never, PageResult<Literature>>('/admin/literatures/pending', {
-    params,
-  })
+  return request.get<never, PageResult<Literature>>(
+    '/admin/literatures/pending',
+    {
+      params,
+    },
+  )
 }
 
 export function approveLiterature(id: Id) {

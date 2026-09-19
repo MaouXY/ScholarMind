@@ -27,6 +27,12 @@ const router = createRouter({
           meta: { role: 'STUDENT', title: '文献检索与阅读' },
         },
         {
+          path: 'student/shelf',
+          name: 'student-shelf',
+          component: () => import('@/views/student/LiteratureShelfView.vue'),
+          meta: { role: 'STUDENT', title: '我的书房' },
+        },
+        {
           path: 'student/literature/:id',
           name: 'student-literature-detail',
           component: () => import('@/views/student/LiteratureDetailView.vue'),

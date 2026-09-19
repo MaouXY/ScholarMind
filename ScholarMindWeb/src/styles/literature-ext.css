@@ -95,7 +95,9 @@
   color: #263547;
   font-size: 13px;
   cursor: pointer;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .suggestion-row button:hover,
@@ -138,7 +140,9 @@
   border: 1px solid rgba(105, 132, 161, 0.16);
   scroll-margin-top: 18px;
   cursor: pointer;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .chunk-card:hover,
@@ -235,7 +239,9 @@
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .chunk-toc__list button:hover,
@@ -263,6 +269,228 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ==========================================================================
+   文献详情 · 引用与下载区块
+   ========================================================================== */
+
+.citation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.citation-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(105, 132, 161, 0.16);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.citation-card.is-active {
+  border-color: rgba(23, 107, 255, 0.42);
+  box-shadow: var(--shadow-soft);
+}
+
+.citation-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.citation-card__head strong {
+  color: var(--color-accent);
+  font-size: 15px;
+}
+
+.citation-card__text {
+  margin: 0;
+  min-height: 92px;
+  color: #263547;
+  font-size: 14px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+
+.citation-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.citation-records {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(105, 132, 161, 0.16);
+}
+
+.citation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.citation-export-bar {
+  margin-top: 14px;
+}
+
+.citation-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(105, 132, 161, 0.14);
+}
+
+.citation-record h4 {
+  margin: 6px 0 8px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.citation-record p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* ==========================================================================
+   我的书房 · 三个分页签
+   ========================================================================== */
+
+.shelf-pane {
+  display: grid;
+  gap: 14px;
+}
+
+.shelf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shelf-toolbar__info {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.shelf-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shelf-list {
+  display: grid;
+  gap: 12px;
+}
+
+.shelf-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(105, 132, 161, 0.14);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.shelf-card:hover {
+  border-color: rgba(23, 107, 255, 0.32);
+  box-shadow: var(--shadow-soft);
+}
+
+.shelf-card__main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shelf-card__main h4 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.shelf-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-subtle);
+  font-size: 13px;
+}
+
+.shelf-card__excerpt {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.shelf-card__progress {
+  display: grid;
+  gap: 6px;
+}
+
+.shelf-card__progress-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--color-subtle);
+  font-size: 13px;
+}
+
+.shelf-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: start;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.shelf-pager {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 900px) {
+  .citation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shelf-card {
+    grid-template-columns: 1fr;
+  }
+
+  .shelf-card__actions {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 900px) {

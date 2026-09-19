@@ -7,7 +7,13 @@ import com.maou.apptemplateapi.module.literature.dto.ReadingNoteResponse;
 import com.maou.apptemplateapi.module.literature.service.ReadingNoteService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.nio.charset.StandardCharsets;
 
 @RestController
 @RequiredArgsConstructor
@@ -15,6 +21,16 @@ import org.springframework.web.bind.annotation.*;
 public class ReadingNoteController {
 
     private final ReadingNoteService readingNoteService;
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(@RequestParam(required = false) Long literatureId) {
+        byte[] content = readingNoteService.exportMarkdown(literatureId).getBytes(StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("reading-notes.md", StandardCharsets.UTF_8).build().toString())
+                .contentType(new MediaType("text", "markdown", StandardCharsets.UTF_8))
+                .body(content);
+    }
 
     @PostMapping
     public ApiResponse<ReadingNoteResponse> create(@Valid @RequestBody ReadingNoteRequest request) {

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatLineRound,
+  Collection,
   CollectionTag,
   Connection,
   Cpu,
@@ -68,7 +69,8 @@ import type {
 const demoLiteratures: Literature[] = [
   {
     id: '1200000000000000001',
-    title: 'Research on Intelligent Recommendation Service in University Digital Library',
+    title:
+      'Research on Intelligent Recommendation Service in University Digital Library',
     author: 'Li Ming',
     source: 'Library Information Service',
     publishYear: 2024,
@@ -81,13 +83,15 @@ const demoLiteratures: Literature[] = [
       'This paper discusses personalized resource recommendation for university digital libraries and proposes a hybrid method based on keywords and user behavior.',
     aiSummary:
       '论文围绕高校数字图书馆的个性化推荐服务展开，重点比较关键词匹配与用户行为建模的协同效果，适合作为推荐系统与数字图书馆结合方向的综述入口。',
-    keywords: 'digital library,recommendation system,user behavior,personalization',
+    keywords:
+      'digital library,recommendation system,user behavior,personalization',
     readCount: 36,
     downloadCount: 8,
   },
   {
     id: '1200000000000000002',
-    title: 'Semantic Retrieval Method for Academic Literature Based on User Intent',
+    title:
+      'Semantic Retrieval Method for Academic Literature Based on User Intent',
     author: 'Wang Qian',
     source: 'Modern Information',
     publishYear: 2023,
@@ -100,7 +104,8 @@ const demoLiteratures: Literature[] = [
       'This study analyzes natural language search intent and improves academic literature discovery through structured retrieval conditions.',
     aiSummary:
       '文章从自然语言检索意图识别切入，把用户问题拆解为主题、方法、对象和约束条件，对构建 AI 文献检索助手的查询理解模块很有参考价值。',
-    keywords: 'semantic retrieval,natural language,academic literature,user intent',
+    keywords:
+      'semantic retrieval,natural language,academic literature,user intent',
     readCount: 28,
     downloadCount: 5,
   },
@@ -118,7 +123,8 @@ const demoNotes: ReadingNote[] = [
     id: '9000000000000000002',
     literatureId: '1200000000000000001',
     title: 'AI 解析建议',
-    content: '适合用作“个性化资源推荐”章节的相关工作，对比用户行为和内容相似度。',
+    content:
+      '适合用作“个性化资源推荐”章节的相关工作，对比用户行为和内容相似度。',
     aiGenerated: 1,
   },
 ]
@@ -185,6 +191,11 @@ function openLiteraturePage(target: 'detail' | 'read' | 'qa') {
   router.push(`/student/literature/${literatureId}${suffix}`)
 }
 
+// 跳转到我的书房：收藏、阅读历史与笔记的统一入口
+function goShelf() {
+  router.push('/student/shelf')
+}
+
 const query = reactive({
   page: 1,
   size: 8,
@@ -233,7 +244,9 @@ const noteForm = reactive<ReadingNotePayload>({
 
 const total = ref(0)
 
-const currentLiterature = computed(() => detail.value?.literature ?? selected.value)
+const currentLiterature = computed(
+  () => detail.value?.literature ?? selected.value,
+)
 
 const compareIds = computed(() =>
   literatures.value
@@ -252,10 +265,23 @@ const keywordTokens = computed(() =>
 const parseSignals = computed(() => {
   const item = currentLiterature.value
   return [
-    { label: '元数据', value: item?.author || item?.source ? '已解析' : '待补全' },
+    {
+      label: '元数据',
+      value: item?.author || item?.source ? '已解析' : '待补全',
+    },
     { label: '摘要', value: item?.abstractText ? '已提取' : '待解析' },
-    { label: '向量索引', value: indexResult.value?.chunkCount ? `${indexResult.value.chunkCount} 块` : '可重建' },
-    { label: 'RAG 引用', value: activeAnswer.value?.references?.length ? `${activeAnswer.value.references.length} 条` : '待提问' },
+    {
+      label: '向量索引',
+      value: indexResult.value?.chunkCount
+        ? `${indexResult.value.chunkCount} 块`
+        : '可重建',
+    },
+    {
+      label: 'RAG 引用',
+      value: activeAnswer.value?.references?.length
+        ? `${activeAnswer.value.references.length} 条`
+        : '待提问',
+    },
   ]
 })
 
@@ -268,7 +294,8 @@ const outlineItems = computed(() => [
   },
   {
     title: '方法路径',
-    content: '拆解模型、系统流程、检索策略或推荐策略，标注可以复用到系统设计的部分。',
+    content:
+      '拆解模型、系统流程、检索策略或推荐策略，标注可以复用到系统设计的部分。',
   },
   {
     title: '证据材料',
@@ -294,7 +321,9 @@ function visibilityLabel(visibility?: LiteratureVisibility) {
 
 function hydrateHistory(history?: ReadingHistory | null) {
   readingState.lastPage = history?.lastPage ?? 1
-  readingState.progress = history?.progress ?? Math.min(92, Math.max(18, (currentLiterature.value?.readCount ?? 0) * 2))
+  readingState.progress =
+    history?.progress ??
+    Math.min(92, Math.max(18, (currentLiterature.value?.readCount ?? 0) * 2))
   readingState.readDuration = history?.readDuration ?? 12
 }
 
@@ -352,11 +381,29 @@ async function fetchCategories() {
   try {
     categories.value = await listCategories()
   } catch (error) {
-    console.error('category load failed, scenario=literature-category-list', error)
+    console.error(
+      'category load failed, scenario=literature-category-list',
+      error,
+    )
     categories.value = [
-      { id: '1100000000000000001', name: 'Digital Library', sort: 10, status: 1 },
-      { id: '1100000000000000002', name: 'Information Retrieval', sort: 20, status: 1 },
-      { id: '1100000000000000003', name: 'Artificial Intelligence', sort: 30, status: 1 },
+      {
+        id: '1100000000000000001',
+        name: 'Digital Library',
+        sort: 10,
+        status: 1,
+      },
+      {
+        id: '1100000000000000002',
+        name: 'Information Retrieval',
+        sort: 20,
+        status: 1,
+      },
+      {
+        id: '1100000000000000003',
+        name: 'Artificial Intelligence',
+        sort: 30,
+        status: 1,
+      },
     ]
   }
 }
@@ -425,7 +472,8 @@ async function runRagSearch() {
       query: ragForm.query,
       literatures: demoLiteratures,
       references: demoReferences,
-      parsedIntent: '演示模式：意图拆解为主题=AI 文献检索助手，方法=语义检索/RAG，目标=找到可复用设计。',
+      parsedIntent:
+        '演示模式：意图拆解为主题=AI 文献检索助手，方法=语义检索/RAG，目标=找到可复用设计。',
     }
     literatures.value = demoLiteratures
     total.value = demoLiteratures.length
@@ -508,7 +556,9 @@ async function fetchQaHistory(literatureId: Id) {
         question: qaForm.question,
         answer:
           '演示回答：这篇文献可以从研究问题、检索意图建模、混合召回策略和用户行为反馈四个维度拆解，并把方法部分复用到 ScholarMind 的 RAG 检索链路。',
-        references: demoReferences.filter((item) => item.literatureId === literatureId),
+        references: demoReferences.filter(
+          (item) => item.literatureId === literatureId,
+        ),
       },
     ]
   } finally {
@@ -715,7 +765,10 @@ async function askCurrentQuestion() {
       limit: qaForm.limit,
     })
     activeAnswer.value = result
-    qaRecords.value = [result, ...qaRecords.value.filter((item) => item.recordId !== result.recordId)]
+    qaRecords.value = [
+      result,
+      ...qaRecords.value.filter((item) => item.recordId !== result.recordId),
+    ]
     ElMessage.success('RAG 问答已生成')
   } catch (error) {
     console.error(
@@ -731,7 +784,9 @@ async function askCurrentQuestion() {
       question: qaForm.question,
       answer:
         '演示回答：可以先把论文拆成“问题、方法、数据、结论、局限”五类证据，再用 RAG 引用命中的原文片段，回答时显式区分作者结论和系统推断。',
-      references: demoReferences.filter((item) => item.literatureId === literatureId),
+      references: demoReferences.filter(
+        (item) => item.literatureId === literatureId,
+      ),
     }
     activeAnswer.value = fallbackAnswer
     qaRecords.value = [fallbackAnswer, ...qaRecords.value]
@@ -799,11 +854,15 @@ async function saveNote() {
 
 async function removeNote(note: ReadingNote) {
   try {
-    await ElMessageBox.confirm('删除后不可恢复，确认删除这条阅读笔记？', '删除笔记', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
+    await ElMessageBox.confirm(
+      '删除后不可恢复，确认删除这条阅读笔记？',
+      '删除笔记',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
     await deleteReadingNote(note.id)
     ElMessage.success('笔记已删除')
     if (currentLiterature.value) {
@@ -856,7 +915,8 @@ onMounted(async () => {
         <p class="panel__eyebrow">Stage 4 LLM + RAG Workspace</p>
         <h2>让语义检索、证据引用和论文问答在阅读舱里闭环</h2>
         <p>
-          第四阶段聚焦 LLM 与 RAG：自然语言检索、向量索引、AI 摘要、文献问答和多文献对比会围绕当前阅读材料同步运转。
+          第四阶段聚焦 LLM 与 RAG：自然语言检索、向量索引、AI
+          摘要、文献问答和多文献对比会围绕当前阅读材料同步运转。
         </p>
       </div>
       <div class="hero-orbit" aria-hidden="true">
@@ -889,7 +949,11 @@ onMounted(async () => {
             />
           </el-form-item>
           <el-form-item label="学科分类">
-            <el-select v-model="query.categoryId" clearable placeholder="全部分类">
+            <el-select
+              v-model="query.categoryId"
+              clearable
+              placeholder="全部分类"
+            >
               <el-option
                 v-for="category in categories"
                 :key="category.id"
@@ -915,7 +979,12 @@ onMounted(async () => {
               </el-select>
             </el-form-item>
           </div>
-          <el-button type="primary" class="wide-action" :loading="loading" @click="fetchLiteratures">
+          <el-button
+            type="primary"
+            class="wide-action"
+            :loading="loading"
+            @click="fetchLiteratures"
+          >
             执行检索
           </el-button>
         </el-form>
@@ -926,7 +995,9 @@ onMounted(async () => {
               <p class="panel__eyebrow">Semantic Retrieval</p>
               <h3>RAG 检索</h3>
             </div>
-            <el-tag effect="plain">{{ ragForm.mode === 'natural' ? '自然语言' : '语义向量' }}</el-tag>
+            <el-tag effect="plain">{{
+              ragForm.mode === 'natural' ? '自然语言' : '语义向量'
+            }}</el-tag>
           </div>
           <el-segmented
             v-model="ragForm.mode"
@@ -942,8 +1013,18 @@ onMounted(async () => {
             placeholder="用研究问题描述你想找的文献"
           />
           <div class="rag-search-box__footer">
-            <el-input-number v-model="ragForm.limit" :min="1" :max="10" controls-position="right" />
-            <el-button :icon="Connection" type="primary" :loading="ragSearching" @click="runRagSearch">
+            <el-input-number
+              v-model="ragForm.limit"
+              :min="1"
+              :max="10"
+              controls-position="right"
+            />
+            <el-button
+              :icon="Connection"
+              type="primary"
+              :loading="ragSearching"
+              @click="runRagSearch"
+            >
               RAG 检索
             </el-button>
           </div>
@@ -962,7 +1043,12 @@ onMounted(async () => {
 
         <section v-if="searchInsight" class="rag-intent-panel">
           <p class="panel__eyebrow">Parsed Intent</p>
-          <p>{{ searchInsight.parsedIntent || '后端返回了检索结果，暂无自然语言意图说明。' }}</p>
+          <p>
+            {{
+              searchInsight.parsedIntent ||
+              '后端返回了检索结果，暂无自然语言意图说明。'
+            }}
+          </p>
           <strong>{{ searchInsight.references.length }} 条证据片段</strong>
         </section>
       </aside>
@@ -976,11 +1062,17 @@ onMounted(async () => {
           @click="chooseLiterature(item)"
         >
           <div class="paper-card__status">
-            <el-tag size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag>
+            <el-tag size="small" effect="plain">{{
+              statusLabel(item.status)
+            }}</el-tag>
             <span>{{ visibilityLabel(item.visibility) }}</span>
           </div>
           <h3>{{ item.title }}</h3>
-          <p>{{ item.abstractText || '暂无摘要，建议上传 PDF 后补充摘要和关键词。' }}</p>
+          <p>
+            {{
+              item.abstractText || '暂无摘要，建议上传 PDF 后补充摘要和关键词。'
+            }}
+          </p>
           <div class="paper-card__meta">
             <span>{{ item.author || '未知作者' }}</span>
             <span>{{ item.source || '未填写来源' }}</span>
@@ -989,7 +1081,10 @@ onMounted(async () => {
         </article>
       </section>
 
-      <section class="reader-surface reader-surface--stage3" aria-label="论文解析阅读器">
+      <section
+        class="reader-surface reader-surface--stage3"
+        aria-label="论文解析阅读器"
+      >
         <template v-if="currentLiterature">
           <div class="reader-toolbar">
             <el-button
@@ -1000,18 +1095,39 @@ onMounted(async () => {
             >
               {{ favorited ? '已收藏' : '收藏' }}
             </el-button>
-            <el-button :icon="Reading" plain :loading="historySaving" @click="syncReadingHistory">
+            <el-button
+              :icon="Reading"
+              plain
+              :loading="historySaving"
+              @click="syncReadingHistory"
+            >
               同步进度
             </el-button>
-            <el-button :icon="Cpu" plain :loading="indexBuilding" @click="rebuildCurrentIndex">
+            <el-button
+              :icon="Cpu"
+              plain
+              :loading="indexBuilding"
+              @click="rebuildCurrentIndex"
+            >
               重建索引
             </el-button>
-            <el-button :icon="MagicStick" plain :loading="summaryLoading" @click="generateCurrentSummary">
+            <el-button
+              :icon="MagicStick"
+              plain
+              :loading="summaryLoading"
+              @click="generateCurrentSummary"
+            >
               AI 摘要
             </el-button>
-            <el-button :icon="Notebook" plain @click="openNoteCreate(0)">新建笔记</el-button>
-            <el-button :icon="CollectionTag" plain @click="openNoteCreate(1)">AI 解析笔记</el-button>
-            <el-button :icon="EditPen" plain @click="openEdit">编辑信息</el-button>
+            <el-button :icon="Notebook" plain @click="openNoteCreate(0)"
+              >新建笔记</el-button
+            >
+            <el-button :icon="CollectionTag" plain @click="openNoteCreate(1)"
+              >AI 解析笔记</el-button
+            >
+            <el-button :icon="EditPen" plain @click="openEdit"
+              >编辑信息</el-button
+            >
             <el-button
               plain
               :disabled="currentLiterature.visibility !== 'PUBLIC'"
@@ -1022,17 +1138,30 @@ onMounted(async () => {
           </div>
 
           <div class="reader-toolbar" aria-label="独立页面入口">
-            <el-button :icon="InfoFilled" type="primary" @click="openLiteraturePage('detail')">
+            <el-button
+              :icon="InfoFilled"
+              type="primary"
+              @click="openLiteraturePage('detail')"
+            >
               查看详情
             </el-button>
-            <el-button :icon="Reading" @click="openLiteraturePage('read')">在线阅读</el-button>
-            <el-button :icon="ChatLineRound" @click="openLiteraturePage('qa')">智能问答</el-button>
+            <el-button :icon="Reading" @click="openLiteraturePage('read')"
+              >在线阅读</el-button
+            >
+            <el-button :icon="ChatLineRound" @click="openLiteraturePage('qa')"
+              >智能问答</el-button
+            >
+            <el-button :icon="Collection" plain @click="goShelf"
+              >我的书房</el-button
+            >
           </div>
 
           <article class="reader-paper" v-loading="detailLoading">
             <div class="reader-titlebar">
               <div>
-                <p class="panel__eyebrow">{{ displayCategoryName(currentLiterature.categoryName) }}</p>
+                <p class="panel__eyebrow">
+                  {{ displayCategoryName(currentLiterature.categoryName) }}
+                </p>
                 <h2>{{ currentLiterature.title }}</h2>
               </div>
               <el-tag :type="favorited ? 'success' : 'info'" effect="light">
@@ -1059,7 +1188,12 @@ onMounted(async () => {
                   <p class="panel__eyebrow">Ask With Evidence</p>
                   <h3>论文问答</h3>
                 </div>
-                <el-button :icon="ChatLineRound" type="primary" :loading="qaLoading" @click="askCurrentQuestion">
+                <el-button
+                  :icon="ChatLineRound"
+                  type="primary"
+                  :loading="qaLoading"
+                  @click="askCurrentQuestion"
+                >
                   生成回答
                 </el-button>
               </div>
@@ -1071,8 +1205,18 @@ onMounted(async () => {
               />
               <div class="rag-command-panel__footer">
                 <span>引用上限</span>
-                <el-input-number v-model="qaForm.limit" :min="1" :max="8" controls-position="right" />
-                <el-button :icon="Refresh" plain :loading="qaHistoryLoading" @click="fetchQaHistory(currentLiterature.id)">
+                <el-input-number
+                  v-model="qaForm.limit"
+                  :min="1"
+                  :max="8"
+                  controls-position="right"
+                />
+                <el-button
+                  :icon="Refresh"
+                  plain
+                  :loading="qaHistoryLoading"
+                  @click="fetchQaHistory(currentLiterature.id)"
+                >
                   刷新历史
                 </el-button>
               </div>
@@ -1084,7 +1228,10 @@ onMounted(async () => {
                 <p>{{ activeAnswer.answer }}</p>
               </div>
               <div class="reference-list" v-if="activeAnswer.references.length">
-                <article v-for="reference in activeAnswer.references" :key="reference.id">
+                <article
+                  v-for="reference in activeAnswer.references"
+                  :key="reference.id"
+                >
                   <div>
                     <strong>#{{ reference.chunkIndex ?? reference.id }}</strong>
                     <span>{{ Math.round(reference.score * 100) }}%</span>
@@ -1104,9 +1251,17 @@ onMounted(async () => {
               </div>
               <el-slider v-model="readingState.progress" :min="0" :max="100" />
               <div class="history-inputs">
-                <el-input-number v-model="readingState.lastPage" :min="0" controls-position="right" />
+                <el-input-number
+                  v-model="readingState.lastPage"
+                  :min="0"
+                  controls-position="right"
+                />
                 <span>最后页码</span>
-                <el-input-number v-model="readingState.readDuration" :min="0" controls-position="right" />
+                <el-input-number
+                  v-model="readingState.readDuration"
+                  :min="0"
+                  controls-position="right"
+                />
                 <span>阅读分钟</span>
               </div>
             </section>
@@ -1129,7 +1284,9 @@ onMounted(async () => {
             </section>
 
             <section class="keyword-ribbon" v-if="keywordTokens.length">
-              <span v-for="token in keywordTokens" :key="token">{{ token }}</span>
+              <span v-for="token in keywordTokens" :key="token">{{
+                token
+              }}</span>
             </section>
 
             <section class="reading-grid">
@@ -1145,7 +1302,12 @@ onMounted(async () => {
                   <p class="panel__eyebrow">QA Memory</p>
                   <h3>问答历史</h3>
                 </div>
-                <el-button :icon="DataAnalysis" plain :loading="compareLoading" @click="compareVisibleLiteratures">
+                <el-button
+                  :icon="DataAnalysis"
+                  plain
+                  :loading="compareLoading"
+                  @click="compareVisibleLiteratures"
+                >
                   对比当前结果
                 </el-button>
               </div>
@@ -1169,7 +1331,9 @@ onMounted(async () => {
               </div>
               <p>{{ compareResult.analysis }}</p>
               <div class="keyword-ribbon">
-                <span v-for="id in compareResult.literatureIds" :key="id">#{{ id }}</span>
+                <span v-for="id in compareResult.literatureIds" :key="id"
+                  >#{{ id }}</span
+                >
               </div>
             </section>
 
@@ -1179,18 +1343,24 @@ onMounted(async () => {
                   <p class="panel__eyebrow">Reading Notes</p>
                   <h3>阅读笔记</h3>
                 </div>
-                <el-button :icon="Notebook" plain @click="openNoteCreate(0)">添加</el-button>
+                <el-button :icon="Notebook" plain @click="openNoteCreate(0)"
+                  >添加</el-button
+                >
               </div>
               <div class="note-list" v-if="notes.length">
                 <article v-for="note in notes" :key="note.id" class="note-card">
                   <div>
-                    <el-tag v-if="note.aiGenerated" size="small" type="success">AI</el-tag>
+                    <el-tag v-if="note.aiGenerated" size="small" type="success"
+                      >AI</el-tag
+                    >
                     <h4>{{ note.title }}</h4>
                     <p>{{ note.content }}</p>
                   </div>
                   <div class="note-actions">
                     <el-button text @click="openNoteEdit(note)">编辑</el-button>
-                    <el-button text type="danger" @click="removeNote(note)">删除</el-button>
+                    <el-button text type="danger" @click="removeNote(note)"
+                      >删除</el-button
+                    >
                   </div>
                 </article>
               </div>
@@ -1216,7 +1386,11 @@ onMounted(async () => {
             <el-input v-model="form.author" />
           </el-form-item>
           <el-form-item label="年份">
-            <el-input-number v-model="form.publishYear" :min="1900" :max="2100" />
+            <el-input-number
+              v-model="form.publishYear"
+              :min="1900"
+              :max="2100"
+            />
           </el-form-item>
         </div>
         <el-form-item label="来源">
@@ -1224,7 +1398,11 @@ onMounted(async () => {
         </el-form-item>
         <div class="filter-grid">
           <el-form-item label="分类">
-            <el-select v-model="form.categoryId" clearable placeholder="选择分类">
+            <el-select
+              v-model="form.categoryId"
+              clearable
+              placeholder="选择分类"
+            >
               <el-option
                 v-for="category in categories"
                 :key="category.id"
@@ -1251,8 +1429,14 @@ onMounted(async () => {
         </el-form-item>
         <label class="upload-drop">
           <el-icon><UploadFilled /></el-icon>
-          <span>{{ form.fileId ? `已绑定文件 #${form.fileId}` : '选择 PDF 或文本文件' }}</span>
-          <input type="file" accept=".pdf,.txt,application/pdf,text/plain" @change="handleNativeFile" />
+          <span>{{
+            form.fileId ? `已绑定文件 #${form.fileId}` : '选择 PDF 或文本文件'
+          }}</span>
+          <input
+            type="file"
+            accept=".pdf,.txt,application/pdf,text/plain"
+            @change="handleNativeFile"
+          />
         </label>
         <el-button
           class="wide-action drawer-action"

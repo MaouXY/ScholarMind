@@ -2,11 +2,15 @@ package com.maou.apptemplateapi.module.literature.controller;
 
 import com.maou.apptemplateapi.common.result.ApiResponse;
 import com.maou.apptemplateapi.common.result.PageResult;
+import com.maou.apptemplateapi.module.citation.dto.CitationStyleResponse;
+import com.maou.apptemplateapi.module.citation.service.CitationService;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureChunkResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureDetailResponse;
+import com.maou.apptemplateapi.module.literature.dto.LiteratureDownloadResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureRequest;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureResponse;
 import com.maou.apptemplateapi.module.literature.service.LiteratureDetailService;
+import com.maou.apptemplateapi.module.literature.service.LiteratureDownloadService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureIndexService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureService;
 import jakarta.validation.Valid;
@@ -23,6 +27,8 @@ public class LiteratureController {
     private final LiteratureService literatureService;
     private final LiteratureDetailService literatureDetailService;
     private final LiteratureIndexService literatureIndexService;
+    private final LiteratureDownloadService literatureDownloadService;
+    private final CitationService citationService;
 
     @GetMapping
     public ApiResponse<PageResult<LiteratureResponse>> list(
@@ -48,6 +54,16 @@ public class LiteratureController {
     @GetMapping("/{id}/chunks")
     public ApiResponse<List<LiteratureChunkResponse>> chunks(@PathVariable Long id) {
         return ApiResponse.success(literatureIndexService.listChunks(id));
+    }
+
+    @GetMapping("/{id}/citations")
+    public ApiResponse<List<CitationStyleResponse>> citations(@PathVariable Long id) {
+        return ApiResponse.success(citationService.stylesForLiterature(id));
+    }
+
+    @GetMapping("/{id}/download")
+    public ApiResponse<LiteratureDownloadResponse> download(@PathVariable Long id) {
+        return ApiResponse.success(literatureDownloadService.download(id));
     }
 
     @PostMapping
