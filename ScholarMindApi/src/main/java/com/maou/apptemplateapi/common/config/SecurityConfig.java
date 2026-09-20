@@ -52,6 +52,9 @@ public class SecurityConfig {
                                 "/webjars/**",
                                 "/favicon.ico"
                         ).permitAll()
+                        // 管理端接口在 URL 层即要求 ADMIN 角色，未授权返回 403（RestAccessDeniedHandler）；
+                        // 业务层仍保留各自的 requireAdmin 校验，形成双重防护。
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(requestLoggingFilter, LogoutFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

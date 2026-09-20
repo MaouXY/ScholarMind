@@ -151,6 +151,11 @@ public class LiteratureService {
         CurrentUser currentUser = CurrentUserProvider.require();
         Literature literature = requireLiterature(id, "literature-submit");
         ensureOwner(literature, currentUser, "literature-submit");
+        if (!STATUS_DRAFT.equals(literature.getStatus()) && !STATUS_REJECTED.equals(literature.getStatus())) {
+            log.warn("literature submit rejected, scenario=literature-submit, reason=status-invalid, literatureId={}, uploaderId={}, status={}",
+                    id, currentUser.getId(), literature.getStatus());
+            throw new BusinessException(ErrorCode.LITERATURE_STATUS_INVALID);
+        }
         if (!VISIBILITY_PUBLIC.equals(literature.getVisibility())) {
             log.warn("literature submit rejected, scenario=literature-submit, reason=not-public, literatureId={}, uploaderId={}, visibility={}",
                     id, currentUser.getId(), literature.getVisibility());
@@ -167,6 +172,11 @@ public class LiteratureService {
     public LiteratureResponse approve(Long id) {
         CurrentUser admin = requireAdmin("admin-approve-literature");
         Literature literature = requireLiterature(id, "admin-approve-literature");
+        if (!STATUS_PENDING_REVIEW.equals(literature.getStatus())) {
+            log.warn("literature approve rejected, scenario=admin-approve-literature, reason=status-invalid, literatureId={}, adminId={}, status={}",
+                    id, admin.getId(), literature.getStatus());
+            throw new BusinessException(ErrorCode.LITERATURE_STATUS_INVALID);
+        }
         if (!VISIBILITY_PUBLIC.equals(literature.getVisibility())) {
             log.warn("literature approve rejected, scenario=admin-approve-literature, reason=not-public, literatureId={}, adminId={}, visibility={}",
                     id, admin.getId(), literature.getVisibility());

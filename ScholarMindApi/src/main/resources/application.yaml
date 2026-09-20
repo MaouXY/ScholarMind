@@ -147,6 +147,9 @@ app:
       - audio/ogg
       - application/pdf
       - text/plain
+      # Word：docx 走 POI 解析正文；老 .doc 二进制格式解析按「不支持」处理（走题录摘要兜底）
+      - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      - application/msword
     temp-expire-hours: ${APP_FILE_TEMP_EXPIRE_HOURS:24}
     cleanup-cron: ${APP_FILE_CLEANUP_CRON:0 0 * * * *}
 
