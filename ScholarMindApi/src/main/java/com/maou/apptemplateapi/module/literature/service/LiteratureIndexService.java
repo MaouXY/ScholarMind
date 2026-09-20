@@ -12,6 +12,7 @@ import com.maou.apptemplateapi.module.literature.entity.Literature;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureChunk;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureChunkMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
+import com.maou.apptemplateapi.module.rag.service.MilvusLiteratureVectorService;
 import com.maou.apptemplateapi.module.rag.service.RagEmbeddingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,12 +30,16 @@ public class LiteratureIndexService {
 
     private static final String STATUS_INDEXED = "INDEXED";
     private static final String STATUS_FAILED = "FAILED";
+    private static final String VECTOR_STATUS_PENDING = "PENDING";
+    private static final String VECTOR_STATUS_MILVUS = "MILVUS";
+    private static final String VECTOR_STATUS_DB_ONLY = "DB_ONLY";
 
     private final LiteratureService literatureService;
     private final LiteratureMapper literatureMapper;
     private final LiteratureChunkMapper chunkMapper;
     private final AgentToolProperties agentToolProperties;
     private final RagEmbeddingService ragEmbeddingService;
+    private final MilvusLiteratureVectorService milvusLiteratureVectorService;
 
     @Transactional
     public LiteratureIndexResponse rebuild(Long literatureId) {
@@ -49,6 +54,7 @@ public class LiteratureIndexService {
             }
             int deletedChunks = chunkMapper.physicalDeleteByLiteratureId(literatureId);
             List<String> texts = splitText(content);
+            List<LiteratureChunk> chunks = new ArrayList<>();
             for (int i = 0; i < texts.size(); i++) {
                 LiteratureChunk chunk = new LiteratureChunk();
                 chunk.setLiteratureId(literatureId);
@@ -56,15 +62,23 @@ public class LiteratureIndexService {
                 chunk.setChunkText(texts.get(i));
                 chunk.setTokenCount(Math.max(1, texts.get(i).length() / 2));
                 chunk.setEmbeddingProvider("%s:%s".formatted(ragEmbeddingService.provider(), ragEmbeddingService.modelName()));
-                chunk.setVectorStoreStatus("DB_ONLY");
+                chunk.setVectorStoreStatus(VECTOR_STATUS_PENDING);
                 chunk.setEnabled(1);
                 chunkMapper.insert(chunk);
+                chunks.add(chunk);
+            }
+            // 写入 Milvus 向量库：成功标记 MILVUS，失败保留 DB_ONLY（检索会自动退化为纯稀疏 BM25）
+            boolean vectorIndexed = milvusLiteratureVectorService.rebuildLiterature(literatureId, chunks, "literature-index-rebuild");
+            String vectorStatus = vectorIndexed ? VECTOR_STATUS_MILVUS : VECTOR_STATUS_DB_ONLY;
+            for (LiteratureChunk chunk : chunks) {
+                chunk.setVectorStoreStatus(vectorStatus);
+                chunkMapper.updateById(chunk);
             }
             literature.setParseStatus(STATUS_INDEXED);
             literature.setParseError(null);
             literatureMapper.updateById(literature);
-            log.info("literature index rebuilt, scenario=literature-index-rebuild, literatureId={}, userId={}, deletedChunkCount={}, insertedChunkCount={}, embeddingProvider={}",
-                    literatureId, currentUser.getId(), deletedChunks, texts.size(), ragEmbeddingService.provider());
+            log.info("literature index rebuilt, scenario=literature-index-rebuild, literatureId={}, userId={}, deletedChunkCount={}, insertedChunkCount={}, embeddingProvider={}, vectorStoreStatus={}",
+                    literatureId, currentUser.getId(), deletedChunks, texts.size(), ragEmbeddingService.provider(), vectorStatus);
             return new LiteratureIndexResponse(literatureId, texts.size(), literature.getParseStatus());
         } catch (BusinessException exception) {
             throw exception;

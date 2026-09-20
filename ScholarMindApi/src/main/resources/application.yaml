@@ -1,4 +1,4 @@
-﻿server:
+server:
   port: 8992
 
 spring:
@@ -57,6 +57,21 @@ app:
       max-image-size-bytes: ${APP_AI_MAX_IMAGE_SIZE_BYTES:5242880}
       max-image-total-bytes: ${APP_AI_MAX_IMAGE_TOTAL_BYTES:10485760}
       image-transfer-mode: ${APP_AI_IMAGE_TRANSFER_MODE:BASE64}
+    retrieval:
+      # 混合检索：BM25 稀疏召回 + Milvus 向量稠密召回，按 RRF 融合排序
+      enabled: ${APP_RETRIEVAL_ENABLED:true}
+      # RRF 融合常数 k：得分 = Σ 1/(k + rank)，业界常用 60
+      rrf-k: ${APP_RETRIEVAL_RRF_K:60}
+      # 两路召回的候选数量
+      sparse-top-k: ${APP_RETRIEVAL_SPARSE_TOP_K:30}
+      dense-top-k: ${APP_RETRIEVAL_DENSE_TOP_K:30}
+      # BM25 参数：k1 控制词频饱和，b 控制文档长度归一化
+      bm25-k1: ${APP_RETRIEVAL_BM25_K1:1.2}
+      bm25-b: ${APP_RETRIEVAL_BM25_B:0.75}
+      # 融合后是否再用外部重排模型做最终排序
+      rerank-enabled: ${APP_RETRIEVAL_RERANK_ENABLED:true}
+      # 单次检索的最小候选数
+      candidate-floor: ${APP_RETRIEVAL_CANDIDATE_FLOOR:12}
   agent:
     bocha:
       web-search:
@@ -85,7 +100,9 @@ app:
         timeout-seconds: ${APP_RAG_MILVUS_TIMEOUT_SECONDS:20}
         collection-name: ${APP_RAG_MILVUS_COLLECTION:scholar_mind_knowledge}
         vector-field: ${APP_RAG_MILVUS_VECTOR_FIELD:vector}
-        dimension: ${APP_RAG_EMBEDDING_DIMENSION:1560}
+        # 必须与 embedding 模型的实际输出维度一致：doubao-embedding-text-240715 实测为 2560
+        # （此前误配为 1560，会导致 Milvus 报 "Incorrect dimension for field 'vector'"）
+        dimension: ${APP_RAG_EMBEDDING_DIMENSION:2560}
         top-k: ${APP_RAG_MILVUS_TOP_K:5}
         chunk-size: ${APP_RAG_CHUNK_SIZE:800}
         chunk-overlap: ${APP_RAG_CHUNK_OVERLAP:120}

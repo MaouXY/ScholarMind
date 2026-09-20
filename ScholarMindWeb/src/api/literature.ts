@@ -23,6 +23,7 @@ import type {
   ReadingHistoryPayload,
   ReadingNote,
   ReadingNotePayload,
+  RetrievalCompareResult,
 } from '@/types/literature'
 
 import request from '@/utils/request'
@@ -73,6 +74,19 @@ export function semanticSearch(payload: LiteratureSearchPayload) {
 export function naturalLanguageSearch(payload: LiteratureSearchPayload) {
   return request.post<never, LiteratureSearchResult>(
     '/search/natural-language',
+    payload,
+  )
+}
+
+/** 混合检索：BM25 稀疏召回 + Milvus 稠密召回 + RRF 融合排序 */
+export function hybridSearch(payload: LiteratureSearchPayload) {
+  return request.post<never, LiteratureSearchResult>('/search/hybrid', payload)
+}
+
+/** 检索消融对比：同一次查询分别返回纯关键词 / 纯向量 / RRF 融合三列结果 */
+export function compareRetrieval(payload: LiteratureSearchPayload) {
+  return request.post<never, RetrievalCompareResult>(
+    '/search/retrieval-compare',
     payload,
   )
 }

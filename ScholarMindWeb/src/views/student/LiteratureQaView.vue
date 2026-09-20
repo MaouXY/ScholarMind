@@ -83,6 +83,31 @@ function referenceLabel(reference: LiteratureReferenceChunk) {
   return `#${reference.chunkIndex ?? reference.id}`
 }
 
+type RetrievalBadge = {
+  label: string
+  tone: 'primary' | 'success' | 'info' | 'warning'
+}
+
+// 混合检索链路返回的引用片段会带稀疏 / 稠密名次与 RRF 融合分，旧记录可能缺少这些可选字段
+function referenceRankBadges(
+  reference: LiteratureReferenceChunk,
+): RetrievalBadge[] {
+  const badges: RetrievalBadge[] = []
+  if (typeof reference.sparseRank === 'number') {
+    badges.push({ label: `稀疏#${reference.sparseRank}`, tone: 'info' })
+  }
+  if (typeof reference.denseRank === 'number') {
+    badges.push({ label: `向量#${reference.denseRank}`, tone: 'success' })
+  }
+  if (typeof reference.rrfScore === 'number') {
+    badges.push({
+      label: `RRF ${reference.rrfScore.toFixed(3)}`,
+      tone: 'warning',
+    })
+  }
+  return badges
+}
+
 function recordKey(record: LiteratureQuestionResult, index: number) {
   return String(record.recordId ?? `${record.question}-${index}`)
 }
@@ -347,6 +372,20 @@ onMounted(async () => {
                 <div>
                   <strong>{{ referenceLabel(reference) }}</strong>
                   <span>{{ scorePercent(reference.score) }}%</span>
+                </div>
+                <div
+                  v-if="referenceRankBadges(reference).length"
+                  class="retrieval-badge-row"
+                >
+                  <el-tag
+                    v-for="badge in referenceRankBadges(reference)"
+                    :key="badge.label"
+                    size="small"
+                    effect="plain"
+                    :type="badge.tone"
+                  >
+                    {{ badge.label }}
+                  </el-tag>
                 </div>
                 <p>{{ reference.content }}</p>
               </article>

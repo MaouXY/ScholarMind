@@ -94,6 +94,14 @@ export interface LiteratureReferenceChunk {
   chunkIndex?: number
   content: string
   score: number
+  /** 该分块在 BM25 关键词召回中的名次（1 起，未命中为 null） */
+  sparseRank?: number | null
+  /** 该分块在 Milvus 向量召回中的名次（1 起，未命中为 null） */
+  denseRank?: number | null
+  /** RRF 融合得分（Σ 1/(k+rank)，k=60，越大越靠前） */
+  rrfScore?: number | null
+  /** 命中来源：HYBRID / SPARSE / DENSE */
+  retriever?: string | null
 }
 
 export interface LiteratureSearchPayload {
@@ -106,7 +114,33 @@ export interface LiteratureSearchResult {
   query: string
   literatures: Literature[]
   references: LiteratureReferenceChunk[]
-  parsedIntent?: string
+  parsedIntent?: string | null
+}
+
+/** 检索消融对比中的单条命中（关键词 / 向量 / 融合三列结构一致） */
+export interface RetrievalHit {
+  chunkId: Id
+  literatureId: Id
+  literatureTitle: string
+  chunkIndex?: number | null
+  content: string
+  score: number
+  /** 该列内部名次（1 起） */
+  rank: number
+  sparseRank?: number | null
+  denseRank?: number | null
+  rrfScore?: number | null
+}
+
+/** POST /search/retrieval-compare：纯关键词 vs 纯向量 vs RRF 融合 */
+export interface RetrievalCompareResult {
+  query: string
+  /** 向量检索是否可用（Milvus 未就绪或分块未建向量时为 false） */
+  denseAvailable: boolean
+  limit: number
+  sparse: RetrievalHit[]
+  dense: RetrievalHit[]
+  hybrid: RetrievalHit[]
 }
 
 export interface LiteratureSummaryResult {

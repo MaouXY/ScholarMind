@@ -6,6 +6,8 @@
 - 前端：Vue 3 + TypeScript + Vite + Element Plus + Pinia + ECharts
 - 存储：MySQL 8（业务数据）、RustFS（对象存储，S3 兼容）
 - AI：文献摘要、自然语言检索意图解析、基于原文片段的问答、多文献对比、运营分析报告（均带本地兜底）
+- 检索：**混合检索**——BM25 稀疏召回（关键词精确匹配）+ Milvus 向量稠密召回（语义相似）+ **RRF 融合排序**，
+  规避纯向量召回对专有名词、术语缩写不敏感的缺陷；向量不可用时自动退化为纯稀疏检索
 
 ## 一、目录结构
 
@@ -32,8 +34,8 @@ ScholarMind/
 | Node.js | 18+（含 npm） | — |
 | MySQL | 8.x，库名 `scholar_mind` | `127.0.0.1:3306` |
 | RustFS | S3 兼容对象存储，**bucket 需为 `scholar-mind`** | `http://127.0.0.1:9990` |
-| Milvus | 可选，向量检索用；未启动时检索走「关键词 + 重排」 | `127.0.0.1:19530` |
-| 火山方舟 Ark | 需要可用的 API Key 与模型名（`app.ai.ark.*`） | `https://ark.cn-beijing.volces.com/api/v3` |
+| Milvus | 可选，混合检索的向量召回用；未启动时检索自动退化为纯稀疏（BM25） | `127.0.0.1:19530` |
+| 火山方舟 Ark | 需要可用的 API Key 与模型名（`app.ai.ark.*`）；embedding 模型实际维度为 **2560**（见 `app.agent.rag.milvus.dimension`） | `https://ark.cn-beijing.volces.com/api/v3` |
 
 > 配置均可在 `ScholarMindApi/src/main/resources/application.yaml` 中通过环境变量覆盖（如 `APP_DB_URL`、`APP_AI_API_KEY`、`APP_AI_MODEL`、`APP_STORAGE_S3_ENDPOINT`）。
 > RustFS 未启动时，文献上传/下载会返回明确错误（`FILE_UPLOAD_FAILED` / `LITERATURE_FILE_MISSING`），其余功能不受影响。
@@ -134,13 +136,14 @@ npm run build           # 类型门禁 + vite build
 - 文献：`GET /literatures`、`GET /literatures/{id}/view`、`GET /literatures/{id}/chunks`、`GET /literatures/{id}/citations`、`GET /literatures/{id}/download`
 - 阅读：`GET|PUT /reading-history`、`POST|DELETE /favorites`、`GET|POST|PUT|DELETE /notes`、`GET /notes/export`
 - 引用：`GET|POST /citations`、`DELETE /citations/{id}`、`GET /citations/export`
-- 检索与 AI：`POST /search/semantic`、`POST /search/natural-language`、`POST /ai/literature/{id}/summary|question|index`、`POST /ai/literature/compare`
-- 管理：`GET /admin/statistics/dashboard|keywords`、`POST /admin/statistics/report`、`GET /admin/ai-tasks`、`GET /admin/ai-tasks/summary`、`GET|PUT /admin/users`、`POST /admin/literatures/{id}/approve|reject`
+- 检索与 AI：`POST /search/semantic`、`POST /search/hybrid`（混合检索）、`POST /search/retrieval-compare`（稀疏/稠密/RRF 三路对比）、`POST /search/natural-language`、`POST /ai/literature/{id}/summary|question|index`、`POST /ai/literature/compare`
+- 管理：`GET /admin/statistics/dashboard|keywords`、`POST /admin/statistics/report`、`GET /admin/ai-tasks`、`GET /admin/ai-tasks/summary`、`GET|PUT /admin/users`、`POST /admin/literatures/{id}/approve|reject`、`POST /admin/rag/literature-vectors/rebuild`（把已发布文献分块写入 Milvus 向量库）
 
 ## 七、演示路径建议
 
 1. 学生检索「混合检索 如何避免纯向量召回的问题」→ 查看语义检索与意图解析结果；
-2. 进入文献详情，生成 AI 摘要、切换三种引用格式并复制 / 收藏引用 / 导出参考文献；
+2. 在「混合检索对比」区块输入查询，对比 ① 关键词召回 / ② 向量召回 / ③ RRF 融合三列的名次与得分差异；
+3. 进入文献详情，生成 AI 摘要、切换三种引用格式并复制 / 收藏引用 / 导出参考文献；
 3. 在线阅读真实分块正文，保存进度、记录笔记，导出本篇笔记；
 4. 智能问答提问并核对引用片段，做一次多文献对比；
 5. 打开「我的书房」查看收藏、阅读历史与笔记汇总；
@@ -150,7 +153,11 @@ npm run build           # 类型门禁 + vite build
 ## 八、已知限制
 
 1. **正文来源**：分块索引目前基于题录与摘要生成，尚未接入 PDF/Word 正文抽取；接入解析库后写入 `literature_chunk` 即可复用阅读页。
-2. **向量检索**：分块以 `DB_ONLY` 落库，Milvus 写入与向量召回待打通；当前检索为「关键词打分 + 重排」，后续计划实现混合检索 + RRF 融合排序。
+2. **向量检索与混合检索**：已实现混合检索（BM25 稀疏 + Milvus 向量稠密 + RRF 融合，见下方接口与文档 04 第九节）。
+   分块需先写入向量库：管理端调用 `POST /admin/rag/literature-vectors/rebuild`（或对单篇文献重建索引）；
+   未写入向量时检索自动退化为纯稀疏 BM25。**注意** `app.agent.rag.milvus.dimension` 必须与 embedding 模型实际维度一致
+   （`doubao-embedding-text-240715` 为 2560），不一致时写入会报 `Incorrect dimension for field 'vector'`；
+   服务已在写入时做维度自愈（不匹配则删表重建）。
 3. **AI 依赖**：摘要、问答、运营报告在模型不可用时自动落到本地兜底（响应中的 `fallbackUsed` / `summary_status` 可区分），需要真实 AI 效果时请确保 Ark Key 与模型名可用。
 4. **命名遗留**：文件模块仍保留模板期的 `tickets` 路径命名，功能上用于文献附件，后续可统一改名。
 5. **前端开发端口**：默认 5173，若被占用请修改 `ScholarMindWeb/vite.config.ts`。

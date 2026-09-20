@@ -25,12 +25,14 @@ import {
 import {
   askLiteratureQuestion,
   compareLiteratures,
+  compareRetrieval,
   createLiterature,
   createReadingNote,
   deleteReadingNote,
   favoriteLiterature,
   generateLiteratureSummary,
   getLiteratureView,
+  hybridSearch,
   listCategories,
   listLiteratureQaRecords,
   listLiteratures,
@@ -47,6 +49,7 @@ import {
   uploadLiteratureFile,
 } from '@/api/literature'
 import { displayCategoryName } from '@/utils/format'
+import '@/styles/literature-ext.css'
 import type {
   Id,
   Literature,
@@ -64,6 +67,8 @@ import type {
   ReadingHistory,
   ReadingNote,
   ReadingNotePayload,
+  RetrievalCompareResult,
+  RetrievalHit,
 } from '@/types/literature'
 
 const demoLiteratures: Literature[] = [
@@ -225,10 +230,19 @@ const readingState = reactive({
 })
 
 const ragForm = reactive({
-  mode: 'natural' as 'natural' | 'semantic',
+  mode: 'natural' as 'natural' | 'semantic' | 'hybrid',
   query: '帮我找出适合构建 AI 文献检索助手的研究方法',
   limit: 5,
 })
+
+const retrievalForm = reactive({
+  query: '混合检索 如何避免纯向量召回的问题',
+  limit: 5,
+})
+
+const retrievalCompare = ref<RetrievalCompareResult | null>(null)
+
+const retrievalComparing = ref(false)
 
 const qaForm = reactive({
   question: '这篇论文的研究问题、方法和可复用模块分别是什么？',
@@ -285,6 +299,20 @@ const parseSignals = computed(() => {
   ]
 })
 
+const ragModeLabel = computed(() => {
+  if (ragForm.mode === 'semantic') return '语义向量'
+  if (ragForm.mode === 'hybrid') return '混合检索'
+  return '自然语言'
+})
+
+// 检索消融对比：三列结果分别来自纯关键词、纯向量与 RRF 融合
+const sparseHits = computed(() => retrievalCompare.value?.sparse ?? [])
+const denseHits = computed(() => retrievalCompare.value?.dense ?? [])
+const hybridHits = computed(() => retrievalCompare.value?.hybrid ?? [])
+const denseAvailable = computed(
+  () => retrievalCompare.value?.denseAvailable !== false,
+)
+
 const outlineItems = computed(() => [
   {
     title: '研究问题',
@@ -317,6 +345,76 @@ function visibilityLabel(visibility?: LiteratureVisibility) {
   if (visibility === 'PUBLIC') return '公开'
   if (visibility === 'PRIVATE') return '私有'
   return '全部'
+}
+
+type RetrievalBadge = {
+  label: string
+  tone: 'primary' | 'success' | 'info' | 'warning'
+}
+
+function formatScore(score?: number | null, digits = 3) {
+  if (typeof score !== 'number' || Number.isNaN(score)) return '—'
+  return score.toFixed(digits)
+}
+
+function scorePercent(score?: number | null) {
+  if (typeof score !== 'number' || Number.isNaN(score)) return 0
+  return Math.round(Math.min(1, Math.max(0, score)) * 100)
+}
+
+// 分块摘要：压缩空白并截断，避免三列对比被长正文撑开
+function hitExcerpt(content?: string | null, maxLength = 96) {
+  const normalized = (content ?? '').replace(/\s+/g, ' ').trim()
+  if (!normalized) return '暂无分块正文'
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength)}…`
+    : normalized
+}
+
+function rankText(prefix: string, rank?: number | null) {
+  return typeof rank === 'number' ? `${prefix}#${rank}` : `${prefix}#—`
+}
+
+function hitSparseBadge(hit: RetrievalHit): RetrievalBadge {
+  return { label: rankText('稀疏', hit.sparseRank ?? hit.rank), tone: 'info' }
+}
+
+function hitDenseBadge(hit: RetrievalHit): RetrievalBadge {
+  return { label: rankText('向量', hit.denseRank ?? hit.rank), tone: 'success' }
+}
+
+function hitFusionBadges(hit: RetrievalHit): RetrievalBadge[] {
+  return [
+    hitSparseBadge(hit),
+    hitDenseBadge(hit),
+    { label: rankText('融合', hit.rank), tone: 'primary' },
+  ]
+}
+
+function hitRrfText(hit: RetrievalHit) {
+  return typeof hit.rrfScore === 'number'
+    ? `RRF ${hit.rrfScore.toFixed(4)}`
+    : null
+}
+
+// 语义 / 混合检索返回的引用片段可能携带稀疏、稠密名次与 RRF 融合分（旧数据可能为空）
+function referenceRankBadges(
+  reference: LiteratureReferenceChunk,
+): RetrievalBadge[] {
+  const badges: RetrievalBadge[] = []
+  if (typeof reference.sparseRank === 'number') {
+    badges.push({ label: `稀疏#${reference.sparseRank}`, tone: 'info' })
+  }
+  if (typeof reference.denseRank === 'number') {
+    badges.push({ label: `向量#${reference.denseRank}`, tone: 'success' })
+  }
+  if (typeof reference.rrfScore === 'number') {
+    badges.push({
+      label: `RRF ${reference.rrfScore.toFixed(3)}`,
+      tone: 'warning',
+    })
+  }
+  return badges
 }
 
 function hydrateHistory(history?: ReadingHistory | null) {
@@ -451,7 +549,9 @@ async function runRagSearch() {
     const result =
       ragForm.mode === 'semantic'
         ? await semanticSearch(payload)
-        : await naturalLanguageSearch(payload)
+        : ragForm.mode === 'hybrid'
+          ? await hybridSearch(payload)
+          : await naturalLanguageSearch(payload)
     searchInsight.value = result
     literatures.value = result.literatures
     total.value = result.literatures.length
@@ -482,6 +582,40 @@ async function runRagSearch() {
     }
   } finally {
     ragSearching.value = false
+  }
+}
+
+async function runRetrievalCompare() {
+  if (!retrievalForm.query.trim()) {
+    ElMessage.warning('请输入对比检索问题')
+    return
+  }
+
+  retrievalComparing.value = true
+  try {
+    const result = await compareRetrieval({
+      query: retrievalForm.query,
+      categoryId: query.categoryId,
+      limit: retrievalForm.limit,
+    })
+    retrievalCompare.value = result
+    if (result.denseAvailable === false) {
+      ElMessage.warning('向量检索未就绪：请先在管理端重建文献向量')
+    } else {
+      ElMessage.success('混合检索对比完成')
+    }
+  } catch (error) {
+    console.error(
+      'retrieval compare failed, scenario=retrieval-compare-hybrid, query=%s, categoryId=%s, limit=%s',
+      retrievalForm.query,
+      query.categoryId,
+      retrievalForm.limit,
+      error,
+    )
+    // 失败时不保留旧结果，也不构造任何演示命中数据
+    retrievalCompare.value = null
+  } finally {
+    retrievalComparing.value = false
   }
 }
 
@@ -995,15 +1129,14 @@ onMounted(async () => {
               <p class="panel__eyebrow">Semantic Retrieval</p>
               <h3>RAG 检索</h3>
             </div>
-            <el-tag effect="plain">{{
-              ragForm.mode === 'natural' ? '自然语言' : '语义向量'
-            }}</el-tag>
+            <el-tag effect="plain">{{ ragModeLabel }}</el-tag>
           </div>
           <el-segmented
             v-model="ragForm.mode"
             :options="[
               { label: '自然语言', value: 'natural' },
               { label: '语义检索', value: 'semantic' },
+              { label: '混合检索', value: 'hybrid' },
             ]"
           />
           <el-input
@@ -1079,6 +1212,48 @@ onMounted(async () => {
             <span>{{ item.publishYear || '年份未知' }}</span>
           </div>
         </article>
+
+        <section
+          v-if="searchInsight && searchInsight.references.length"
+          class="glass-panel result-references"
+          aria-label="检索命中证据片段"
+        >
+          <div class="panel-heading">
+            <div>
+              <p class="panel__eyebrow">Retrieved Chunks</p>
+              <h3>命中证据片段</h3>
+            </div>
+            <el-tag size="small" effect="plain">
+              {{ searchInsight.references.length }} 条
+            </el-tag>
+          </div>
+          <div class="reference-list">
+            <article
+              v-for="reference in searchInsight.references"
+              :key="reference.id"
+            >
+              <div>
+                <strong>#{{ reference.chunkIndex ?? reference.id }}</strong>
+                <span>{{ scorePercent(reference.score) }}%</span>
+              </div>
+              <div
+                v-if="referenceRankBadges(reference).length"
+                class="retrieval-badge-row"
+              >
+                <el-tag
+                  v-for="badge in referenceRankBadges(reference)"
+                  :key="badge.label"
+                  size="small"
+                  effect="plain"
+                  :type="badge.tone"
+                >
+                  {{ badge.label }}
+                </el-tag>
+              </div>
+              <p>{{ reference.content }}</p>
+            </article>
+          </div>
+        </section>
       </section>
 
       <section
@@ -1236,6 +1411,20 @@ onMounted(async () => {
                     <strong>#{{ reference.chunkIndex ?? reference.id }}</strong>
                     <span>{{ Math.round(reference.score * 100) }}%</span>
                   </div>
+                  <div
+                    v-if="referenceRankBadges(reference).length"
+                    class="retrieval-badge-row"
+                  >
+                    <el-tag
+                      v-for="badge in referenceRankBadges(reference)"
+                      :key="badge.label"
+                      size="small"
+                      effect="plain"
+                      :type="badge.tone"
+                    >
+                      {{ badge.label }}
+                    </el-tag>
+                  </div>
                   <p>{{ reference.content }}</p>
                 </article>
               </div>
@@ -1371,6 +1560,200 @@ onMounted(async () => {
         <el-empty v-else description="检索后选择一篇文献开始阅读" />
       </section>
     </div>
+
+    <section class="glass-panel retrieval-compare" aria-label="混合检索对比">
+      <div class="panel-heading">
+        <div>
+          <p class="panel__eyebrow">Hybrid Retrieval Ablation</p>
+          <h3>混合检索对比</h3>
+        </div>
+        <el-tag
+          v-if="retrievalCompare"
+          size="small"
+          effect="plain"
+          :type="denseAvailable ? 'success' : 'warning'"
+        >
+          {{ denseAvailable ? '向量检索可用' : '向量检索未就绪' }}
+        </el-tag>
+      </div>
+
+      <div class="retrieval-compare__form">
+        <el-input
+          v-model="retrievalForm.query"
+          :prefix-icon="Search"
+          placeholder="例如：混合检索 如何避免纯向量召回的问题"
+          clearable
+          @keyup.enter="runRetrievalCompare"
+        />
+        <el-input-number
+          v-model="retrievalForm.limit"
+          :min="1"
+          :max="10"
+          controls-position="right"
+        />
+        <el-button
+          :icon="DataAnalysis"
+          type="primary"
+          :loading="retrievalComparing"
+          @click="runRetrievalCompare"
+        >
+          执行对比
+        </el-button>
+      </div>
+      <p class="retrieval-compare__hint">
+        同一个问题分别走 BM25 关键词召回、Milvus 向量召回与 RRF 融合排序，用来观察三种策略在同一批分块上的名次差异。
+      </p>
+
+      <el-alert
+        v-if="retrievalCompare && !denseAvailable"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="向量检索未就绪：请先在管理端重建文献向量"
+        description="当前仅关键词召回有效，向量列与融合列中的向量名次为空，页面仍会展示后端返回的内容。"
+      />
+
+      <div v-if="retrievalCompare" class="retrieval-columns">
+        <article class="retrieval-column">
+          <header class="retrieval-column__head">
+            <div>
+              <p class="panel__eyebrow">BM25 Sparse</p>
+              <h4>① 关键词召回（BM25 稀疏）</h4>
+            </div>
+            <span>{{ sparseHits.length }} 条</span>
+          </header>
+          <div v-if="sparseHits.length" class="retrieval-hit-list">
+            <div
+              v-for="hit in sparseHits"
+              :key="`sparse-${hit.chunkId}`"
+              class="retrieval-hit"
+            >
+              <div class="retrieval-hit__head">
+                <strong>{{ hit.literatureTitle || '未命名文献' }}</strong>
+                <el-tag
+                  size="small"
+                  effect="plain"
+                  :type="hitSparseBadge(hit).tone"
+                >
+                  {{ hitSparseBadge(hit).label }}
+                </el-tag>
+              </div>
+              <div class="retrieval-hit__meta">
+                <span>#{{ hit.chunkIndex ?? '—' }} 分块</span>
+                <span>BM25 得分 {{ formatScore(hit.score) }}</span>
+              </div>
+              <p class="retrieval-hit__excerpt">
+                {{ hitExcerpt(hit.content) }}
+              </p>
+            </div>
+          </div>
+          <el-empty
+            v-else
+            :image-size="72"
+            description="关键词召回无命中，可换用更短的术语重试"
+          />
+        </article>
+
+        <article class="retrieval-column">
+          <header class="retrieval-column__head">
+            <div>
+              <p class="panel__eyebrow">Milvus Dense</p>
+              <h4>② 向量召回（Milvus 稠密）</h4>
+            </div>
+            <span>{{ denseHits.length }} 条</span>
+          </header>
+          <div v-if="denseHits.length" class="retrieval-hit-list">
+            <div
+              v-for="hit in denseHits"
+              :key="`dense-${hit.chunkId}`"
+              class="retrieval-hit"
+            >
+              <div class="retrieval-hit__head">
+                <strong>{{ hit.literatureTitle || '未命名文献' }}</strong>
+                <el-tag
+                  size="small"
+                  effect="plain"
+                  :type="hitDenseBadge(hit).tone"
+                >
+                  {{ hitDenseBadge(hit).label }}
+                </el-tag>
+              </div>
+              <div class="retrieval-hit__meta">
+                <span>#{{ hit.chunkIndex ?? '—' }} 分块</span>
+                <span>相似度 {{ formatScore(hit.score) }}</span>
+              </div>
+              <p class="retrieval-hit__excerpt">
+                {{ hitExcerpt(hit.content) }}
+              </p>
+            </div>
+          </div>
+          <el-empty
+            v-else
+            :image-size="72"
+            :description="
+              denseAvailable
+                ? '向量召回无命中'
+                : '向量检索未就绪，未返回稠密召回结果'
+            "
+          />
+        </article>
+
+        <article class="retrieval-column retrieval-column--fusion">
+          <header class="retrieval-column__head">
+            <div>
+              <p class="panel__eyebrow">RRF Fusion</p>
+              <h4>③ RRF 融合（最终排序）</h4>
+            </div>
+            <span>{{ hybridHits.length }} 条</span>
+          </header>
+          <div v-if="hybridHits.length" class="retrieval-hit-list">
+            <div
+              v-for="hit in hybridHits"
+              :key="`hybrid-${hit.chunkId}`"
+              class="retrieval-hit"
+            >
+              <div class="retrieval-hit__head">
+                <strong>{{ hit.literatureTitle || '未命名文献' }}</strong>
+                <el-tag size="small" effect="plain">{{
+                  rankText('融合', hit.rank)
+                }}</el-tag>
+              </div>
+              <div class="retrieval-hit__meta">
+                <span>#{{ hit.chunkIndex ?? '—' }} 分块</span>
+                <span>融合得分 {{ formatScore(hit.score) }}</span>
+              </div>
+              <div class="retrieval-hit__ranks">
+                <el-tag
+                  v-for="badge in hitFusionBadges(hit)"
+                  :key="badge.label"
+                  size="small"
+                  effect="plain"
+                  :type="badge.tone"
+                >
+                  {{ badge.label }}
+                </el-tag>
+                <span v-if="hitRrfText(hit)" class="retrieval-hit__rrf">{{
+                  hitRrfText(hit)
+                }}</span>
+              </div>
+              <p class="retrieval-hit__excerpt">
+                {{ hitExcerpt(hit.content) }}
+              </p>
+            </div>
+          </div>
+          <el-empty
+            v-else
+            :image-size="72"
+            description="融合结果为空，可先确认关键词与向量两路是否有召回"
+          />
+        </article>
+      </div>
+
+      <el-empty
+        v-else
+        description="输入问题后点击「执行对比」，查看关键词、向量与 RRF 融合的差异"
+      />
+    </section>
 
     <el-drawer
       v-model="editorVisible"

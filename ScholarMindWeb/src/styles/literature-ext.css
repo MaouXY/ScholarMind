@@ -505,3 +505,173 @@
     max-height: none;
   }
 }
+
+/* ==========================================================================
+   混合检索对比 · 关键词 / 向量 / RRF 融合三列对照
+   （仅使用 .retrieval- 前缀，避免影响既有页面样式）
+   ========================================================================== */
+
+.retrieval-compare {
+  display: grid;
+  gap: 14px;
+}
+
+.retrieval-compare__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.retrieval-compare__hint {
+  margin: 0;
+  color: var(--color-subtle);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.retrieval-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.retrieval-column {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(105, 132, 161, 0.16);
+}
+
+.retrieval-column--fusion {
+  border-color: rgba(23, 107, 255, 0.34);
+  box-shadow: var(--shadow-soft);
+}
+
+.retrieval-column__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.retrieval-column__head > div {
+  min-width: 0;
+}
+
+.retrieval-column__head h4 {
+  margin: 4px 0 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.retrieval-column__head > span {
+  color: var(--color-subtle);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.retrieval-hit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.retrieval-hit {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(105, 132, 161, 0.14);
+}
+
+.retrieval-hit__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.retrieval-hit__head strong {
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.retrieval-hit__head .el-tag {
+  flex: 0 0 auto;
+}
+
+.retrieval-hit__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--color-subtle);
+  font-size: 12px;
+}
+
+.retrieval-hit__ranks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.retrieval-hit__rrf {
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.retrieval-hit__excerpt {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.65;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* 检索结果与问答引用片段上的排名徽标 */
+.retrieval-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.reference-list .retrieval-badge-row {
+  justify-content: flex-start;
+  font-weight: 500;
+}
+
+.reference-list .retrieval-badge-row .el-tag {
+  font-weight: 700;
+}
+
+.result-references {
+  display: grid;
+  gap: 14px;
+}
+
+@media (max-width: 1180px) {
+  .retrieval-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .retrieval-compare__form {
+    grid-template-columns: 1fr;
+  }
+}

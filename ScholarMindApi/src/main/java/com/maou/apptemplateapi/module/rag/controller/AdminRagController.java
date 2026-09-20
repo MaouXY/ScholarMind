@@ -2,6 +2,8 @@ package com.maou.apptemplateapi.module.rag.controller;
 
 import com.maou.apptemplateapi.common.result.ApiResponse;
 import com.maou.apptemplateapi.common.result.PageResult;
+import com.maou.apptemplateapi.module.admin.dto.LiteratureVectorRebuildResponse;
+import com.maou.apptemplateapi.module.admin.service.AdminLiteratureVectorService;
 import com.maou.apptemplateapi.module.rag.dto.KnowledgeDocumentRequest;
 import com.maou.apptemplateapi.module.rag.dto.KnowledgeDocumentResponse;
 import com.maou.apptemplateapi.module.rag.service.RagKnowledgeService;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 public class AdminRagController {
 
     private final RagKnowledgeService ragKnowledgeService;
+    private final AdminLiteratureVectorService adminLiteratureVectorService;
 
     @GetMapping("/documents")
     public ApiResponse<PageResult<KnowledgeDocumentResponse>> documents(
@@ -44,5 +47,11 @@ public class AdminRagController {
     @PostMapping("/documents/{id}/rebuild")
     public ApiResponse<Integer> rebuild(@PathVariable Long id) {
         return ApiResponse.success(ragKnowledgeService.rebuildDocumentChunks(id));
+    }
+
+    /** 为所有已发布文献的正文分块重建 Milvus 向量（混合检索的稠密召回依赖它）。 */
+    @PostMapping("/literature-vectors/rebuild")
+    public ApiResponse<LiteratureVectorRebuildResponse> rebuildLiteratureVectors() {
+        return ApiResponse.success(adminLiteratureVectorService.rebuildAll());
     }
 }

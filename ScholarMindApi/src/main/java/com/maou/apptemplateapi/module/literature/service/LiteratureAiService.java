@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.maou.apptemplateapi.common.exception.BusinessException;
 import com.maou.apptemplateapi.common.exception.ErrorCode;
+import com.maou.apptemplateapi.common.config.RetrievalProperties;
 import com.maou.apptemplateapi.common.security.CurrentUser;
 import com.maou.apptemplateapi.common.security.CurrentUserProvider;
 import com.maou.apptemplateapi.module.ai.entity.AiTaskRecord;
@@ -23,7 +24,10 @@ import com.maou.apptemplateapi.module.literature.mapper.LiteratureChunkMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureQaRecordMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureSearchLogMapper;
+import com.maou.apptemplateapi.module.literature.service.retrieval.RrfFusion;
+import com.maou.apptemplateapi.module.literature.service.retrieval.SparseRetriever;
 import com.maou.apptemplateapi.module.rag.dto.RagChunkResponse;
+import com.maou.apptemplateapi.module.rag.service.MilvusLiteratureVectorService;
 import com.maou.apptemplateapi.module.rag.service.RagRerankService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +61,10 @@ public class LiteratureAiService {
     private final LiteratureIndexService literatureIndexService;
     private final RagRerankService ragRerankService;
     private final ObjectMapper objectMapper;
+    private final SparseRetriever sparseRetriever;
+    private final RrfFusion rrfFusion;
+    private final MilvusLiteratureVectorService milvusLiteratureVectorService;
+    private final RetrievalProperties retrievalProperties;
 
     @Transactional
     public LiteratureSummaryResponse generateSummary(Long literatureId) {
@@ -286,24 +294,169 @@ public class LiteratureAiService {
                 .toList();
     }
 
+    /**
+     * 混合检索主链路：BM25 稀疏召回 + Milvus 向量稠密召回 → RRF 融合 → 可选重排。
+     *
+     * 之所以不直接用纯向量召回：向量模型对专有名词、术语缩写、型号等精确匹配不敏感，
+     * 且在没有向量库时整体不可用；稀疏召回恰好擅长精确匹配。两者用 RRF 融合后，
+     * 任一路召回失手时另一路仍能主导排序。
+     */
     private List<LiteratureReferenceChunkResponse> searchChunks(String query, Long categoryId, Integer limit, String scenario) {
         CurrentUser currentUser = CurrentUserProvider.require();
         int requestedLimit = Math.max(limit == null ? 6 : limit, 1);
+        List<LiteratureChunk> corpus = readableChunks(categoryId, currentUser, scenario);
+        if (corpus.isEmpty()) {
+            return List.of();
+        }
+
+        RetrievalResult result = retrieve(query, corpus, scenario);
+        int candidateLimit = Math.max(requestedLimit, retrievalProperties.getCandidateFloor());
+        List<Long> sparseRanked = result.sparseHits().stream().map(SparseRetriever.ScoredChunk::chunkId).toList();
+        List<RrfFusion.FusedChunk> fused = rrfFusion.fuse(sparseRanked, result.denseRanked(), retrievalProperties.getRrfK(), candidateLimit);
+        Map<Long, Double> rrfScores = fused.stream()
+                .collect(Collectors.toMap(RrfFusion.FusedChunk::chunkId, RrfFusion.FusedChunk::rrfScore, (left, right) -> left));
+
+        Map<Long, LiteratureChunk> chunkMap = result.chunkMap();
+        List<RagChunkResponse> candidates = fused.stream()
+                .map(item -> {
+                    LiteratureChunk chunk = chunkMap.get(item.chunkId());
+                    return new RagChunkResponse(chunk.getId(), chunk.getLiteratureId(), "literature", chunk.getChunkText(), item.rrfScore());
+                })
+                .toList();
+
+        List<RagChunkResponse> ordered = retrievalProperties.isRerankEnabled()
+                ? ragRerankService.rerank(query, candidates, scenario)
+                : candidates;
+
+        log.info("literature hybrid search executed, scenario={}, userId={}, query={}, corpusSize={}, sparseCandidates={}, denseCandidates={}, fusedCandidates={}, denseAvailable={}, rerankEnabled={}, rrfK={}",
+                scenario, currentUser.getId(), query, corpus.size(), result.sparseHits().size(), result.denseRanked().size(),
+                fused.size(), result.denseAvailable(), retrievalProperties.isRerankEnabled(), retrievalProperties.getRrfK());
+
+        String retriever = result.denseAvailable() ? "HYBRID" : "SPARSE";
+        return ordered.stream()
+                .limit(requestedLimit)
+                .map(item -> {
+                    LiteratureChunk chunk = chunkMap.get(item.id());
+                    return new LiteratureReferenceChunkResponse(
+                            item.id(),
+                            item.documentId(),
+                            chunk == null ? null : chunk.getChunkIndex(),
+                            item.content(),
+                            item.score(),
+                            result.sparseRanks().get(item.id()),
+                            result.denseRanks().get(item.id()),
+                            rrfScores.get(item.id()),
+                            retriever);
+                })
+                .toList();
+    }
+
+    /**
+     * 检索消融对比：同一查询下分别返回稀疏、稠密与 RRF 融合三路排序，用于验证混合检索的收益。
+     */
+    public RetrievalCompareResponse compareRetrieval(LiteratureSearchRequest request) {
+        CurrentUser currentUser = CurrentUserProvider.require();
+        int limit = Math.max(request.limit() == null ? 5 : request.limit(), 1);
+        List<LiteratureChunk> corpus = readableChunks(request.categoryId(), currentUser, "retrieval-compare");
+        Map<Long, Literature> literatureMap = literatureMap(corpus);
+        Map<Long, LiteratureChunk> chunkMap = corpus.stream()
+                .collect(Collectors.toMap(LiteratureChunk::getId, item -> item, (left, right) -> left));
+
+        RetrievalResult result = retrieve(request.query(), corpus, "retrieval-compare");
+        List<Long> sparseRanked = result.sparseHits().stream().map(SparseRetriever.ScoredChunk::chunkId).toList();
+        List<RrfFusion.FusedChunk> fused = rrfFusion.fuse(sparseRanked, result.denseRanked(),
+                retrievalProperties.getRrfK(), Math.max(limit, retrievalProperties.getCandidateFloor()));
+        Map<Long, Double> rrfScores = fused.stream()
+                .collect(Collectors.toMap(RrfFusion.FusedChunk::chunkId, RrfFusion.FusedChunk::rrfScore, (left, right) -> left));
+
+        Map<Long, Double> sparseScores = result.sparseHits().stream()
+                .collect(Collectors.toMap(SparseRetriever.ScoredChunk::chunkId, SparseRetriever.ScoredChunk::score, (left, right) -> left));
+
+        List<RetrievalHit> sparse = new ArrayList<>();
+        for (SparseRetriever.ScoredChunk hit : result.sparseHits()) {
+            if (sparse.size() >= limit) {
+                break;
+            }
+            sparse.add(toHit(hit.chunkId(), hit.rank(), hit.score(), result.sparseRanks().get(hit.chunkId()),
+                    result.denseRanks().get(hit.chunkId()), rrfScores.get(hit.chunkId()), chunkMap, literatureMap));
+        }
+
+        List<RetrievalHit> dense = new ArrayList<>();
+        for (Long chunkId : result.denseRanked()) {
+            if (dense.size() >= limit) {
+                break;
+            }
+            Integer denseRank = result.denseRanks().get(chunkId);
+            dense.add(toHit(chunkId, denseRank == null ? 0 : denseRank,
+                    result.denseScores().getOrDefault(chunkId, 0.0),
+                    result.sparseRanks().get(chunkId), denseRank, rrfScores.get(chunkId), chunkMap, literatureMap));
+        }
+
+        List<RetrievalHit> hybrid = new ArrayList<>();
+        int position = 0;
+        for (RrfFusion.FusedChunk item : fused) {
+            if (hybrid.size() >= limit) {
+                break;
+            }
+            position++;
+            hybrid.add(toHit(item.chunkId(), position, item.rrfScore(), item.sparseRank(), item.denseRank(),
+                    item.rrfScore(), chunkMap, literatureMap));
+        }
+
+        log.info("retrieval compare executed, scenario=retrieval-compare, userId={}, query={}, corpusSize={}, sparseCandidates={}, denseCandidates={}, denseAvailable={}, sparseScores={}",
+                currentUser.getId(), request.query(), corpus.size(), result.sparseHits().size(), result.denseRanked().size(),
+                result.denseAvailable(), sparseScores.size());
+        return new RetrievalCompareResponse(request.query(), result.denseAvailable(), limit,
+                result.sparseHits().size(), result.denseRanked().size(), sparse, dense, hybrid);
+    }
+
+    /** 两路召回：稀疏（BM25）+ 稠密（Milvus 向量），并把结果整理成名次与得分映射。 */
+    private RetrievalResult retrieve(String query, List<LiteratureChunk> corpus, String scenario) {
+        Map<Long, LiteratureChunk> chunkMap = corpus.stream()
+                .collect(Collectors.toMap(LiteratureChunk::getId, item -> item, (left, right) -> left));
+
+        List<SparseRetriever.ScoredChunk> sparseHits = retrievalProperties.isEnabled()
+                ? sparseRetriever.rank(query, corpus, retrievalProperties.getSparseTopK(),
+                retrievalProperties.getBm25K1(), retrievalProperties.getBm25B())
+                : List.of();
+        Map<Long, Integer> sparseRanks = new HashMap<>();
+        Map<Long, Double> rrfScores = new HashMap<>();
+        for (SparseRetriever.ScoredChunk hit : sparseHits) {
+            sparseRanks.put(hit.chunkId(), hit.rank());
+            rrfScores.put(hit.chunkId(), 0.0);
+        }
+
+        boolean denseEnabled = retrievalProperties.isEnabled() && milvusLiteratureVectorService.enabled();
+        List<Long> denseRanked = new ArrayList<>();
+        Map<Long, Integer> denseRanks = new HashMap<>();
+        Map<Long, Double> denseScores = new LinkedHashMap<>();
+        if (denseEnabled) {
+            List<MilvusLiteratureVectorService.VectorHit> hits = milvusLiteratureVectorService.search(
+                    query, retrievalProperties.getDenseTopK() * 3, scenario);
+            int rank = 0;
+            for (MilvusLiteratureVectorService.VectorHit hit : hits) {
+                if (hit.chunkId() == null || !chunkMap.containsKey(hit.chunkId()) || denseRanks.containsKey(hit.chunkId())) {
+                    continue;
+                }
+                rank++;
+                denseRanked.add(hit.chunkId());
+                denseRanks.put(hit.chunkId(), rank);
+                denseScores.put(hit.chunkId(), hit.score());
+            }
+        }
+        return new RetrievalResult(chunkMap, sparseHits, sparseRanks, denseRanked, denseRanks, denseScores, denseEnabled);
+    }
+
+    /** 取出当前用户可读、且符合分类过滤的分块语料。 */
+    private List<LiteratureChunk> readableChunks(Long categoryId, CurrentUser currentUser, String scenario) {
         List<LiteratureChunk> chunks = chunkMapper.selectList(new LambdaQueryWrapper<LiteratureChunk>()
                 .eq(LiteratureChunk::getEnabled, 1)
                 .eq(LiteratureChunk::getDeleted, 0));
         if (chunks.isEmpty()) {
             return List.of();
         }
-        Map<Long, Literature> literatureMap = literatureMapper.selectBatchIds(chunks.stream()
-                        .map(LiteratureChunk::getLiteratureId)
-                        .filter(Objects::nonNull)
-                        .distinct()
-                        .toList())
-                .stream()
-                .collect(Collectors.toMap(Literature::getId, item -> item));
-        Set<String> tokens = normalizeTokens(query);
-        List<RagChunkResponse> candidates = chunks.stream()
+        Map<Long, Literature> literatureMap = literatureMap(chunks);
+        return chunks.stream()
                 .filter(chunk -> {
                     Literature literature = literatureMap.get(chunk.getLiteratureId());
                     if (literature == null) {
@@ -314,15 +467,53 @@ public class LiteratureAiService {
                     }
                     return isReadable(literature, currentUser);
                 })
-                .map(chunk -> new RagChunkResponse(chunk.getId(), chunk.getLiteratureId(), "literature", chunk.getChunkText(), score(chunk.getChunkText(), tokens)))
-                .filter(item -> item.score() > 0)
-                .sorted(Comparator.comparingDouble(RagChunkResponse::score).reversed())
-                .limit(Math.max(requestedLimit, 12))
                 .toList();
-        return ragRerankService.rerank(query, candidates, scenario).stream()
-                .limit(requestedLimit)
-                .map(item -> new LiteratureReferenceChunkResponse(item.id(), item.documentId(), null, item.content(), item.score()))
-                .toList();
+    }
+
+    private Map<Long, Literature> literatureMap(List<LiteratureChunk> chunks) {
+        if (chunks.isEmpty()) {
+            return Map.of();
+        }
+        return literatureMapper.selectBatchIds(chunks.stream()
+                        .map(LiteratureChunk::getLiteratureId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(Literature::getId, item -> item, (left, right) -> left));
+    }
+
+    private RetrievalHit toHit(Long chunkId,
+                               int rank,
+                               double score,
+                               Integer sparseRank,
+                               Integer denseRank,
+                               Double rrfScore,
+                               Map<Long, LiteratureChunk> chunkMap,
+                               Map<Long, Literature> literatureMap) {
+        LiteratureChunk chunk = chunkMap.get(chunkId);
+        Literature literature = chunk == null ? null : literatureMap.get(chunk.getLiteratureId());
+        return new RetrievalHit(
+                chunkId,
+                chunk == null ? null : chunk.getLiteratureId(),
+                literature == null ? "文献已删除或不可见" : literature.getTitle(),
+                chunk == null ? null : chunk.getChunkIndex(),
+                chunk == null ? "" : chunk.getChunkText(),
+                score,
+                rank,
+                sparseRank,
+                denseRank,
+                rrfScore);
+    }
+
+    private record RetrievalResult(
+            Map<Long, LiteratureChunk> chunkMap,
+            List<SparseRetriever.ScoredChunk> sparseHits,
+            Map<Long, Integer> sparseRanks,
+            List<Long> denseRanked,
+            Map<Long, Integer> denseRanks,
+            Map<Long, Double> denseScores,
+            boolean denseAvailable) {
     }
 
     private boolean isReadable(Literature literature, CurrentUser currentUser) {
@@ -334,25 +525,6 @@ public class LiteratureAiService {
                     literature.getId(), currentUser.getId(), exception.getErrorCode());
             return false;
         }
-    }
-
-    private Set<String> tokenize(String query) {
-        Set<String> tokens = new HashSet<>();
-        if (!StringUtils.hasText(query)) {
-            return tokens;
-        }
-        Arrays.stream(query.toLowerCase(Locale.ROOT).split("[\\s,.;，。；、]+"))
-                .filter(StringUtils::hasText)
-                .forEach(tokens::add);
-        for (int i = 0; i < query.length() - 1; i++) {
-            tokens.add(query.substring(i, i + 2).toLowerCase(Locale.ROOT));
-        }
-        return tokens;
-    }
-
-    private double score(String content, Set<String> tokens) {
-        String normalized = content.toLowerCase(Locale.ROOT);
-        return tokens.stream().filter(normalized::contains).count();
     }
 
     private String truncatePrompt(String text) {
@@ -574,20 +746,6 @@ public class LiteratureAiService {
                 .map(String::trim)
                 .distinct()
                 .collect(Collectors.joining(" "));
-    }
-
-    private Set<String> normalizeTokens(String query) {
-        Set<String> tokens = new HashSet<>();
-        if (!StringUtils.hasText(query)) {
-            return tokens;
-        }
-        Arrays.stream(query.toLowerCase(Locale.ROOT).split("[\\s,.;,，。；、]+"))
-                .filter(StringUtils::hasText)
-                .forEach(tokens::add);
-        for (int i = 0; i < query.length() - 1; i++) {
-            tokens.add(query.substring(i, i + 2).toLowerCase(Locale.ROOT));
-        }
-        return tokens;
     }
 
     private String truncateText(String text, int maxLength) {
