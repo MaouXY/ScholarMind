@@ -1,9 +1,7 @@
 package com.maou.apptemplateapi.module.file.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.maou.apptemplateapi.common.config.FileProperties;
 import com.maou.apptemplateapi.common.config.StorageProperties;
-import com.maou.apptemplateapi.common.enums.UserRole;
 import com.maou.apptemplateapi.common.exception.BusinessException;
 import com.maou.apptemplateapi.common.exception.ErrorCode;
 import com.maou.apptemplateapi.common.security.CurrentUser;
@@ -23,22 +21,26 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.UUID;
 
+/**
+ * 文件存储服务：把文件写入 RustFS（S3 兼容对象存储）并登记 file_metadata。
+ *
+ * 说明：上传后 bizType 为 TEMP（临时文件），业务归属由各业务模块自行维护——
+ * 文献附件通过 literature.file_id 建立绑定，文献下载经 LiteratureDownloadService 生成预签名地址。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class FileService {// TODO 这是从别的项目搬过来的，有绑定工单的业务代码，在之后的开发中可以改造作为我们的文件存储服务。
+public class FileService {
 
     private static final String BIZ_TEMP = "TEMP";
-    private static final String BIZ_TICKET_REPORT = "TICKET_REPORT_IMAGE";
-    private static final String BIZ_TICKET_RESULT = "TICKET_RESULT_IMAGE";
 
     private final FileMetadataMapper fileMetadataMapper;
     private final FileProperties fileProperties;
     private final StorageProperties storageProperties;
     private final S3Client rustfsS3Client;
+
     @Transactional
     public FileResponse upload(MultipartFile file) {
         CurrentUser currentUser = CurrentUserProvider.require();
@@ -74,46 +76,10 @@ public class FileService {// TODO 这是从别的项目搬过来的，有绑定�
         metadata.setBizType(BIZ_TEMP);
         metadata.setPublicUrl(buildPublicUrl(bucket, objectKey));
         fileMetadataMapper.insert(metadata);
+        log.info("file uploaded, scenario=file-upload, fileId={}, uploaderId={}, roleCode={}, bucket={}, objectKey={}, contentType={}, sizeBytes={}",
+                metadata.getId(), currentUser.getId(), currentUser.getRoleCode(), bucket, objectKey,
+                file.getContentType(), file.getSize());
         return toResponse(metadata);
-    }
-
-    @Transactional
-    public List<FileResponse> bindTicketReportImages(Long ticketId, List<Long> fileIds) {
-        CurrentUser currentUser = CurrentUserProvider.require();
-        if (currentUser.getRole() != UserRole.STUDENT) {
-            log.warn("file bind denied, scenario=bind-ticket-report-images, ticketId={}, userId={}, roleCode={}",
-                    ticketId, currentUser.getId(), currentUser.getRoleCode());
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
-        List<FileMetadata> files = requireBindableFiles(fileIds, currentUser, BIZ_TICKET_REPORT, ticketId);
-        files.forEach(file -> bindFile(file, BIZ_TICKET_REPORT, ticketId));
-        return files.stream().map(this::toResponse).toList();
-    }
-
-    @Transactional
-    public List<FileResponse> bindTicketResultImages(Long ticketId, List<Long> fileIds) {
-        CurrentUser currentUser = CurrentUserProvider.require();
-        if (currentUser.getRole() != UserRole.WORKER) {
-            log.warn("file bind denied, scenario=bind-ticket-result-images, ticketId={}, userId={}, roleCode={}",
-                    ticketId, currentUser.getId(), currentUser.getRoleCode());
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
-        List<FileMetadata> files = requireBindableFiles(fileIds, currentUser, BIZ_TICKET_RESULT, ticketId);
-        files.forEach(file -> bindFile(file, BIZ_TICKET_RESULT, ticketId));
-        return files.stream().map(this::toResponse).toList();
-    }
-
-    public List<FileResponse> listByTicket(Long ticketId, String bizType) {
-        CurrentUser currentUser = CurrentUserProvider.require();
-        return fileMetadataMapper.selectList(new LambdaQueryWrapper<FileMetadata>()
-                        .eq(FileMetadata::getBizId, ticketId)
-                        .eq(FileMetadata::getBizType, bizType)
-                        .eq(FileMetadata::getDeleted, 0)
-                        .orderByAsc(FileMetadata::getCreatedAt)
-                        .orderByAsc(FileMetadata::getId))
-                .stream()
-                .map(this::toResponse)
-                .toList();
     }
 
     private void validateFile(MultipartFile file, CurrentUser currentUser) {
@@ -132,34 +98,6 @@ public class FileService {// TODO 这是从别的项目搬过来的，有绑定�
                     currentUser.getId(), file.getContentType());
             throw new BusinessException(ErrorCode.FILE_TYPE_INVALID);
         }
-    }
-
-    private List<FileMetadata> requireBindableFiles(List<Long> fileIds, CurrentUser currentUser, String bizType, Long ticketId) {
-        List<FileMetadata> files = fileMetadataMapper.selectBatchIds(fileIds);
-        if (files.size() != fileIds.stream().distinct().count()) {
-            log.warn("file bind invalid, scenario={}, ticketId={}, uploaderId={}, fileIds={}",
-                    bizType, ticketId, currentUser.getId(), fileIds);
-            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
-        }
-        for (FileMetadata file : files) {
-            if (file.getDeleted() != 0 || !currentUser.getId().equals(file.getUploaderId())) {
-                log.warn("file access denied, scenario={}, ticketId={}, fileId={}, uploaderId={}, currentUserId={}",
-                        bizType, ticketId, file.getId(), file.getUploaderId(), currentUser.getId());
-                throw new BusinessException(ErrorCode.FILE_ACCESS_DENIED);
-            }
-            if (!BIZ_TEMP.equals(file.getBizType()) && !(bizType.equals(file.getBizType()) && ticketId.equals(file.getBizId()))) {
-                log.warn("file already bound, scenario={}, ticketId={}, fileId={}, currentBizType={}, currentBizId={}",
-                        bizType, ticketId, file.getId(), file.getBizType(), file.getBizId());
-                throw new BusinessException(ErrorCode.FILE_ALREADY_BOUND);
-            }
-        }
-        return files;
-    }
-
-    private void bindFile(FileMetadata file, String bizType, Long ticketId) {
-        file.setBizType(bizType);
-        file.setBizId(ticketId);
-        fileMetadataMapper.updateById(file);
     }
 
     private String buildObjectKey(String originalName, CurrentUser currentUser) {

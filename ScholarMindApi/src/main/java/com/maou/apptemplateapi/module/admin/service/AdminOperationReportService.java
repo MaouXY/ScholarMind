@@ -103,7 +103,7 @@ public class AdminOperationReportService {
                 .append(", 问答=").append(overview.qaTotal())
                 .append(", 知识库文档=").append(overview.ragDocumentTotal()).append('\n');
         builder.append("文件资产: 数量=").append(overview.fileTotal())
-                .append(", 总大小=").append(overview.fileSizeBytes()).append(" 字节\n");
+                .append(", 总大小=").append(fileSizeBytesAsLong(overview)).append(" 字节\n");
         builder.append("AI 任务: 总数=").append(overview.aiTaskTotal())
                 .append(", 成功=").append(overview.aiTaskSuccessTotal())
                 .append(", 失败=").append(overview.aiTaskFailedTotal())
@@ -227,7 +227,7 @@ public class AdminOperationReportService {
         sections.add(new StructuredOperationReport.Section("一、平台整体规模",
                 "累计用户 %d 人（学生 %d、教师 %d），累计文献 %d 篇，已发布 %d 篇，文件资产 %d 个，总大小 %d 字节。"
                         .formatted(overview.userTotal(), overview.studentTotal(), overview.teacherTotal(),
-                                literatureTotal, overview.publishedLiteratureTotal(), overview.fileTotal(), overview.fileSizeBytes())));
+                                literatureTotal, overview.publishedLiteratureTotal(), overview.fileTotal(), fileSizeBytesAsLong(overview))));
         sections.add(new StructuredOperationReport.Section("二、窗口内增长与阅读活跃度",
                 "最近 %d 天新增用户 %d 人、新增文献 %d 篇，产生阅读事件 %d 次、问答 %d 次、AI 任务 %d 次。"
                         .formatted(days, newUsers, newLiteratures, readingEvents, qaEvents,
@@ -255,6 +255,14 @@ public class AdminOperationReportService {
                 .map(item -> "%s(%d)".formatted(item.keyword(), item.total()))
                 .reduce((left, right) -> left + "、" + right)
                 .orElse("暂无");
+    }
+
+    /**
+     * 文件总字节在 DTO 中用 Double 承载（全局 Long→String 保护 ID 精度，数值指标必须用数字类型），
+     * 报告文本仍需按“整数字节”拼接，因此在这里取整，保持指标文本与既有格式一致。
+     */
+    private long fileSizeBytesAsLong(AdminOverviewResponse overview) {
+        return overview.fileSizeBytes() == null ? 0L : overview.fileSizeBytes().longValue();
     }
 
     private long sumTrend(List<AdminTrendPointResponse> trends, ToLongFunction<AdminTrendPointResponse> getter) {

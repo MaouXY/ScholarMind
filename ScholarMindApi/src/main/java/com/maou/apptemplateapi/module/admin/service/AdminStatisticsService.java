@@ -164,28 +164,29 @@ public class AdminStatisticsService {
         long aiTaskTotal = countAiTasks(null);
         long aiSuccess = countAiTasks("SUCCESS");
         long aiFailed = countAiTasks("FAILED");
-        Long avgDurationMs = aiTaskTotal == 0 ? 0L : avgAiDuration(null);
+        long avgDurationMs = aiTaskTotal == 0 ? 0L : avgAiDuration(null);
         return new AdminOverviewResponse(
-                countUsers(null, null),
-                countUsers("STUDENT", null),
-                countUsers("TEACHER", null),
-                countUsers(null, 1),
-                countLiteratures(null, null),
-                countLiteratures("PUBLISHED", null),
-                countLiteratures("PENDING_REVIEW", null),
-                countLiteratures(null, "PRIVATE"),
-                countFiles(),
-                sumFileSize(),
-                countFavorites(),
-                countReadingHistories(),
-                countReadingNotes(),
-                countQaRecords(),
-                countRagDocuments(),
-                aiTaskTotal,
-                aiSuccess,
-                aiFailed,
+                toInt(countUsers(null, null)),
+                toInt(countUsers("STUDENT", null)),
+                toInt(countUsers("TEACHER", null)),
+                toInt(countUsers(null, 1)),
+                toInt(countLiteratures(null, null)),
+                toInt(countLiteratures("PUBLISHED", null)),
+                toInt(countLiteratures("PENDING_REVIEW", null)),
+                toInt(countLiteratures(null, "PRIVATE")),
+                toInt(countFiles()),
+                // 文件总字节可能超过 int 范围，用 Double 承载（可精确表示到 2^53）
+                (double) sumFileSize(),
+                toInt(countFavorites()),
+                toInt(countReadingHistories()),
+                toInt(countReadingNotes()),
+                toInt(countQaRecords()),
+                toInt(countRagDocuments()),
+                toInt(aiTaskTotal),
+                toInt(aiSuccess),
+                toInt(aiFailed),
                 rate(aiSuccess, aiTaskTotal),
-                avgDurationMs == null ? 0L : avgDurationMs
+                toInt(avgDurationMs)
         );
     }
 
@@ -208,11 +209,11 @@ public class AdminStatisticsService {
             LocalDate date = start.plusDays(i);
             result.add(new AdminTrendPointResponse(
                     date.toString(),
-                    userCounts.getOrDefault(date, 0L),
-                    literatureCounts.getOrDefault(date, 0L),
-                    historyCounts.getOrDefault(date, 0L),
-                    qaCounts.getOrDefault(date, 0L),
-                    aiCounts.getOrDefault(date, 0L)
+                    toInt(userCounts.getOrDefault(date, 0L)),
+                    toInt(literatureCounts.getOrDefault(date, 0L)),
+                    toInt(historyCounts.getOrDefault(date, 0L)),
+                    toInt(qaCounts.getOrDefault(date, 0L)),
+                    toInt(aiCounts.getOrDefault(date, 0L))
             ));
         }
         return result;
@@ -225,7 +226,7 @@ public class AdminStatisticsService {
                 .entrySet()
                 .stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), entry.getValue()))
+                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), toInt(entry.getValue())))
                 .toList();
     }
 
@@ -241,7 +242,7 @@ public class AdminStatisticsService {
                 .stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                 .limit(limit)
-                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), entry.getValue()))
+                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), toInt(entry.getValue())))
                 .toList();
     }
 
@@ -252,7 +253,7 @@ public class AdminStatisticsService {
                 .entrySet()
                 .stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), entry.getValue()))
+                .map(entry -> new AdminDimensionStatResponse(entry.getKey(), toInt(entry.getValue())))
                 .toList();
     }
 
@@ -279,8 +280,8 @@ public class AdminStatisticsService {
                         item.getVisibility(),
                         item.getReadCount() == null ? 0 : item.getReadCount(),
                         item.getDownloadCount() == null ? 0 : item.getDownloadCount(),
-                        favoriteCounts.getOrDefault(item.getId(), 0L),
-                        noteCounts.getOrDefault(item.getId(), 0L)
+                        toInt(favoriteCounts.getOrDefault(item.getId(), 0L)),
+                        toInt(noteCounts.getOrDefault(item.getId(), 0L))
                 ))
                 .toList();
     }
@@ -303,9 +304,9 @@ public class AdminStatisticsService {
                     long qa = qaCounts.getOrDefault(user.getId(), 0L);
                     long score = uploads * 5 + histories * 2 + favorites * 2 + notes * 3 + qa * 4;
                     return new AdminActiveUserResponse(user.getId(), user.getUsername(), user.getNickname(), user.getRole(),
-                            uploads, histories, favorites, notes, qa, score);
+                            toInt(uploads), toInt(histories), toInt(favorites), toInt(notes), toInt(qa), toInt(score));
                 })
-                .sorted(Comparator.comparingLong(AdminActiveUserResponse::activityScore).reversed())
+                .sorted(Comparator.comparingInt(AdminActiveUserResponse::activityScore).reversed())
                 .limit(limit)
                 .toList();
     }
@@ -318,7 +319,7 @@ public class AdminStatisticsService {
                 .entrySet()
                 .stream()
                 .map(entry -> toAiTaskHealth(entry.getKey(), entry.getValue()))
-                .sorted(Comparator.comparingLong(AdminAiTaskHealthResponse::total).reversed())
+                .sorted(Comparator.comparingInt(AdminAiTaskHealthResponse::total).reversed())
                 .toList();
     }
 
@@ -333,7 +334,8 @@ public class AdminStatisticsService {
                 .mapToLong(Long::longValue)
                 .average()
                 .orElse(0));
-        return new AdminAiTaskHealthResponse(taskType, total, success, failed, timeout, rate(success, total), avgDuration);
+        return new AdminAiTaskHealthResponse(taskType, toInt(total), toInt(success), toInt(failed), toInt(timeout),
+                rate(success, total), toInt(avgDuration));
     }
 
     private long countUsers(String role, Integer status) {
@@ -499,6 +501,15 @@ public class AdminStatisticsService {
             return 0;
         }
         return Math.round((numerator * 10000.0 / denominator)) / 100.0;
+    }
+
+    /**
+     * 全局 Jackson 会把 Long 序列化为字符串（保护雪花 ID 精度），
+     * 因此统计口径的计数与耗时在装配响应时统一收敛为 Integer，保证前端拿到数字。
+     * 计数规模远小于 int 上限，转换是安全的。
+     */
+    private static int toInt(long value) {
+        return (int) value;
     }
 
     private int normalize(Integer value, int defaultValue, int maxValue) {

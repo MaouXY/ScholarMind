@@ -92,7 +92,7 @@ public class AdminAiTaskService {
                 .entrySet()
                 .stream()
                 .map(entry -> toHealth(entry.getKey(), entry.getValue()))
-                .sorted(Comparator.comparingLong(AdminAiTaskHealthResponse::total).reversed())
+                .sorted(Comparator.comparingInt(AdminAiTaskHealthResponse::total).reversed())
                 .toList();
         log.info("admin ai task summary queried, scenario=admin-ai-task-summary, adminId={}, days={}, total={}, success={}, failed={}, timeout={}, running={}",
                 admin.getId(), days, total, success, failed, timeout, running);
@@ -111,7 +111,8 @@ public class AdminAiTaskService {
                 .mapToLong(Long::longValue)
                 .average()
                 .orElse(0));
-        return new AdminAiTaskHealthResponse(taskType, total, success, failed, timeout, rate(success, total), avgDuration);
+        return new AdminAiTaskHealthResponse(taskType, toInt(total), toInt(success), toInt(failed), toInt(timeout),
+                rate(success, total), toInt(avgDuration));
     }
 
     private AdminAiTaskResponse toResponse(AiTaskRecord record) {
