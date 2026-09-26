@@ -444,7 +444,15 @@ public class LiteratureAiService {
                 denseScores.put(hit.chunkId(), hit.score());
             }
         }
-        return new RetrievalResult(chunkMap, sparseHits, sparseRanks, denseRanked, denseRanks, denseScores, denseEnabled);
+        // denseAvailable 表示「本次确实召回到向量候选」：Milvus 未启动或分块尚未写入向量时都会为空。
+        // 只有真正拿到向量候选才算混合检索，否则如实标记为 SPARSE（前端也会提示「向量检索未就绪」），
+        // 避免向量不可用时仍显示成 HYBRID。
+        boolean denseAvailable = denseEnabled && !denseRanked.isEmpty();
+        if (denseEnabled && denseRanked.isEmpty()) {
+            log.warn("dense retrieval returned no candidates, degraded to sparse, scenario={}, query={}, collectionName={}",
+                    scenario, query, milvusLiteratureVectorService.collectionName());
+        }
+        return new RetrievalResult(chunkMap, sparseHits, sparseRanks, denseRanked, denseRanks, denseScores, denseAvailable);
     }
 
     /** 取出当前用户可读、且符合分类过滤的分块语料。 */
