@@ -113,6 +113,23 @@ pwsh -NoProfile -File .\scripts\seed-demo-files.ps1
 
 > 验收步骤与预期结果详见 `doc/...-07-系统验收流程.md`；演示配图清单见 `doc/...-06-系统截图清单.md`。
 
+### 环境迁移与数据导出（`tools/`）
+
+把整个环境（MySQL 业务数据 + Milvus 向量 + RustFS 对象）导出成离线迁移包，或从包恢复：
+
+```powershell
+# 导出：一键生成迁移包（可加 -Zip 打包、-IncludeMcExe 附带 mc.exe）
+pwsh -NoProfile -File tools\export-migration-bundle.ps1 -IncludeMcExe -Zip
+
+# 目标机恢复：MySQL 走包内 SQL，对象与向量走包内脚本
+pwsh -NoProfile -File .\rustfs-import.ps1 -SourceDir . -Bucket scholar-mind
+pwsh -NoProfile -File .\milvus\milvus-import.ps1 -Source .\milvus\milvus-scholar_mind_knowledge_literature.jsonl -CreateCollection
+```
+
+- 工具清单与用法见 [`tools/README.md`](tools/README.md)；包内会自动生成目标机操作说明 `README-迁移步骤.md`
+- **零依赖**：除可选复用已有 `mc.exe` 外，全部用纯 PowerShell 实现（SigV4 签名在 `tools/s3-common.ps1`），国内网络下也能跑通
+- 支持「桶对桶在线迁移」（`tools/rustfs-migrate.ps1`）与「跨桶改名恢复」（`rustfs-import.ps1 -Bucket <新桶名>`）
+
 ## 五、构建与测试
 
 ```powershell
