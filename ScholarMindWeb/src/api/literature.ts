@@ -26,7 +26,7 @@ import type {
   RetrievalCompareResult,
 } from '@/types/literature'
 
-import request from '@/utils/request'
+import request, { AI_REQUEST_TIMEOUT } from '@/utils/request'
 
 export function listLiteratures(params: LiteratureQuery) {
   return request.get<never, PageResult<Literature>>('/literatures', { params })
@@ -94,12 +94,16 @@ export function compareRetrieval(payload: LiteratureSearchPayload) {
 export function rebuildLiteratureIndex(literatureId: Id) {
   return request.post<never, LiteratureIndexResult>(
     `/ai/literature/${literatureId}/index`,
+    undefined,
+    { timeout: AI_REQUEST_TIMEOUT },
   )
 }
 
 export function generateLiteratureSummary(literatureId: Id) {
   return request.post<never, LiteratureSummaryResult>(
     `/ai/literature/${literatureId}/summary`,
+    undefined,
+    { timeout: AI_REQUEST_TIMEOUT },
   )
 }
 
@@ -110,6 +114,7 @@ export function askLiteratureQuestion(
   return request.post<never, LiteratureQuestionResult>(
     `/ai/literature/${literatureId}/question`,
     payload,
+    { timeout: AI_REQUEST_TIMEOUT },
   )
 }
 
@@ -128,6 +133,7 @@ export function compareLiteratures(payload: LiteratureComparePayload) {
   return request.post<never, LiteratureCompareResult>(
     '/ai/literature/compare',
     payload,
+    { timeout: AI_REQUEST_TIMEOUT },
   )
 }
 

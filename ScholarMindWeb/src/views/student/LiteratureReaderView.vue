@@ -1,38 +1,37 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
   ChatLineRound,
   Collection,
-  Cpu,
   Document,
   Download,
   List,
   Notebook,
   Refresh,
-  Star,
-  StarFilled,
-  Timer,
-  UploadFilled,
 } from '@element-plus/icons-vue'
 
 import {
   createReadingNote,
   deleteReadingNote,
-  favoriteLiterature,
-  getLiteratureDownload,
   getLiteratureView,
   getReadingHistory,
   listLiteratureChunks,
   listReadingNotes,
   rebuildLiteratureIndex,
   saveReadingHistory,
-  unfavoriteLiterature,
   updateReadingNote,
 } from '@/api/literature'
-import { downloadReadingNotes, openLiteratureFile } from '@/utils/download'
+import { downloadReadingNotes } from '@/utils/download'
 import { displayCategoryName } from '@/utils/format'
 import type {
   Id,
@@ -60,19 +59,15 @@ const selectedNote = ref<ReadingNote | null>(null)
 
 const loading = ref(false)
 const chunkLoading = ref(false)
-const historyLoading = ref(false)
 const notesLoading = ref(false)
-const progressSaving = ref(false)
 const noteSaving = ref(false)
-const favoriteLoading = ref(false)
 const indexBuilding = ref(false)
 const loadFailed = ref(false)
-const favorited = ref(false)
+const autoRebuildTried = ref(false)
+const autoRebuildFailed = ref(false)
 
-// 原文下载 / 笔记导出：走 blob + Authorization 专用通道
-const downloadLoading = ref(false)
+// 笔记导出：走 blob + Authorization 专用通道
 const noteExporting = ref(false)
-const downloadCount = ref<number | null>(null)
 
 const noteDrawerVisible = ref(false)
 const noteMode = ref<'create' | 'edit'>('create')
@@ -82,9 +77,14 @@ const chunkPageSize = 4
 const chunkPage = ref(1)
 const currentChunkIndex = ref(0)
 
-// 阅读计时：elapsedSeconds 每秒累加，保存进度时作为 readDuration 上报
+// 阅读计时：elapsedSeconds 每秒累加，自动保存进度时作为 readDuration 上报
 const elapsedSeconds = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
+
+// 自动保存：切换分块后 debounce 1.5 秒落库，离开页面时立即补存一次
+const PROGRESS_SAVE_DEBOUNCE = 1500
+let progressSaveTimer: ReturnType<typeof setTimeout> | null = null
+let scrollFrame: number | null = null
 
 const readingState = reactive({
   lastPage: 1,
@@ -165,7 +165,7 @@ const progressPercent = computed(() => {
 
 const savedProgressText = computed(() => {
   if (!history.value) return '暂无历史阅读记录'
-  return `上次读到第 ${history.value.lastPage ?? 1} 块 · 进度 ${history.value.progress ?? 0}% · 已读 ${history.value.readDuration ?? 0} 秒`
+  return `上次阅读的位置：第 ${history.value.lastPage ?? 1} 段 · 进度 ${history.value.progress ?? 0}% · 已读 ${history.value.readDuration ?? 0} 秒`
 })
 
 const elapsedText = computed(() => {
@@ -195,6 +195,16 @@ const fallbackBlocks = computed(() => {
     blocks.push({ title: '关键词', content: keywordTokens.value.join(' / ') })
   }
   return blocks
+})
+
+// 无正文时的用户可读提示：区分「正在解析」「没有文件」「解析失败」三种情况
+const emptyChunkHint = computed(() => {
+  if (indexBuilding.value) return '正在解析正文，请稍候…'
+  if (autoRebuildFailed.value) return '该文献暂无可读正文，请联系管理员'
+  if (!literature.value?.fileId) {
+    return '该文献未绑定原文文件，暂无可读正文，请联系管理员补充原文'
+  }
+  return '该文献暂无可读正文，请联系管理员'
 })
 
 function statusLabel(status?: Literature['status']) {
@@ -247,8 +257,12 @@ const lastPageModel = computed({
   },
 })
 
+// 初始化完成后才允许自动保存，避免历史进度尚未回填就被覆盖
+let autoSaveReady = false
+
 watch(chunkSpan, (value) => {
   readingState.lastPage = value
+  if (autoSaveReady) scheduleProgressSave()
 })
 
 function loadMoreChunks() {
@@ -284,7 +298,6 @@ async function loadLiterature() {
   try {
     const response = await getLiteratureView(id)
     literature.value = response.literature
-    favorited.value = response.favorited
     notes.value = response.recentNotes ?? []
   } catch (error) {
     console.error(
@@ -333,13 +346,46 @@ async function loadChunks() {
   await loadHistory()
   restoreFromHistory(history.value)
   await loadNotes()
+  await tryAutoRebuildChunks()
+  if (hasChunks.value) {
+    restoreFromHistory(history.value)
+  }
+  autoSaveReady = true
+}
+
+/**
+ * 文献已绑定原文但分块为空时，自动尝试重建一次索引（含 embedding，走 120s 超时）。
+ * 无论成功与否都只提示一次，失败后由 emptyChunkHint 给出兜底文案。
+ */
+async function tryAutoRebuildChunks() {
+  if (autoRebuildTried.value || hasChunks.value) return
+  const id = literatureId.value
+  if (!id || !literature.value?.fileId) return
+
+  autoRebuildTried.value = true
+  indexBuilding.value = true
+  try {
+    await rebuildLiteratureIndex(id)
+    await fetchChunks(true)
+    if (!hasChunks.value) {
+      autoRebuildFailed.value = true
+    }
+  } catch (error) {
+    autoRebuildFailed.value = true
+    console.warn(
+      'reader chunk auto rebuild failed, scenario=literature-index-auto-rebuild, literatureId=%s',
+      id,
+      error,
+    )
+  } finally {
+    indexBuilding.value = false
+  }
 }
 
 async function loadHistory() {
   const id = literatureId.value
   if (!id) return
 
-  historyLoading.value = true
   try {
     const result = await getReadingHistory(id)
     history.value = result
@@ -353,15 +399,6 @@ async function loadHistory() {
       id,
       error,
     )
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-async function refreshHistory() {
-  await loadHistory()
-  if (hasChunks.value) {
-    restoreFromHistory(history.value)
   }
 }
 
@@ -388,93 +425,90 @@ async function loadNotes() {
   }
 }
 
-async function rebuildIndexAndReload() {
+/**
+ * 静默保存阅读进度：lastPage 存「当前分块序号 + 1」，无分块时沿用已保存值。
+ * 自动保存失败只写 console.warn，不弹错误打断阅读。
+ */
+async function persistProgress() {
   const id = literatureId.value
-  if (!id) return
+  if (!id || loadFailed.value) return
 
-  indexBuilding.value = true
-  try {
-    const result = await rebuildLiteratureIndex(id)
-    await fetchChunks(true)
-    ElMessage.success(
-      hasChunks.value
-        ? `索引已重建，本次加载 ${totalChunks.value} 个分块（后端报告 ${result.chunkCount} 块）`
-        : `索引已重建，后端报告 ${result.chunkCount} 个分块，正在等待解析结果`,
-    )
-    if (hasChunks.value) {
-      restoreFromHistory(history.value)
-    }
-  } catch (error) {
-    console.error(
-      'literature index rebuild failed, scenario=literature-index-rebuild, literatureId=%s',
-      id,
-      error,
-    )
-  } finally {
-    indexBuilding.value = false
-  }
-}
-
-async function saveProgress() {
-  const id = literatureId.value
-  if (!id) return
-
-  // lastPage 存「当前分块序号 + 1」，无分块时沿用已保存值
   const lastPage = hasChunks.value
     ? currentChunk.value + 1
     : readingState.lastPage
+  const progress = progressPercent.value
+  const readDuration = elapsedSeconds.value
 
-  progressSaving.value = true
   try {
     const result = await saveReadingHistory(id, {
       lastPage,
-      progress: progressPercent.value,
-      readDuration: elapsedSeconds.value,
+      progress,
+      readDuration,
     })
     history.value = result
     readingState.lastPage = result?.lastPage ?? lastPage
-    ElMessage.success(
-      `阅读进度已保存（第 ${lastPage} 块 · ${progressPercent.value}%）`,
-    )
   } catch (error) {
-    console.error(
-      'reading history save failed, scenario=reading-history-upsert, literatureId=%s, lastPage=%s, progress=%s, readDuration=%s',
+    console.warn(
+      'reading progress auto save failed, scenario=reading-history-auto-save, literatureId=%s, lastPage=%s, progress=%s, readDuration=%s',
       id,
       lastPage,
-      progressPercent.value,
-      elapsedSeconds.value,
+      progress,
+      readDuration,
       error,
     )
-  } finally {
-    progressSaving.value = false
   }
 }
 
-async function toggleFavorite() {
-  const id = literatureId.value
-  if (!id) return
-
-  favoriteLoading.value = true
-  try {
-    if (favorited.value) {
-      await unfavoriteLiterature(id)
-      favorited.value = false
-      ElMessage.success('已取消收藏')
-    } else {
-      await favoriteLiterature(id)
-      favorited.value = true
-      ElMessage.success('已收藏该文献')
-    }
-  } catch (error) {
-    console.error(
-      'favorite toggle failed, scenario=literature-favorite-toggle, literatureId=%s, favorited=%s',
-      id,
-      favorited.value,
-      error,
-    )
-  } finally {
-    favoriteLoading.value = false
+function scheduleProgressSave() {
+  if (progressSaveTimer !== null) {
+    clearTimeout(progressSaveTimer)
   }
+  progressSaveTimer = setTimeout(() => {
+    progressSaveTimer = null
+    queueProgressSave()
+  }, PROGRESS_SAVE_DEBOUNCE)
+}
+
+// 串行化保存请求，避免 debounce 与离开页面补存并发导致旧进度覆盖新进度
+let progressSaveChain: Promise<void> = Promise.resolve()
+
+function queueProgressSave() {
+  progressSaveChain = progressSaveChain.then(() => persistProgress())
+}
+
+function flushProgressSave() {
+  if (progressSaveTimer !== null) {
+    clearTimeout(progressSaveTimer)
+    progressSaveTimer = null
+  }
+  queueProgressSave()
+}
+
+/** 滚动时按视口位置同步当前分块，再触发 debounce 保存 */
+function syncCurrentChunkFromViewport() {
+  if (!hasChunks.value) return
+  const cards = document.querySelectorAll<HTMLElement>('.chunk-card')
+  let activeIndex: number | null = null
+  cards.forEach((card) => {
+    if (card.getBoundingClientRect().top <= 160) {
+      const index = Number(card.dataset.chunkIndex)
+      if (Number.isFinite(index)) activeIndex = index
+    }
+  })
+  if (activeIndex === null || activeIndex === currentChunkIndex.value) return
+  currentChunkIndex.value = activeIndex
+  chunkPage.value = Math.max(
+    chunkPage.value,
+    Math.floor(activeIndex / chunkPageSize) + 1,
+  )
+}
+
+function handleScroll() {
+  if (scrollFrame !== null) return
+  scrollFrame = window.requestAnimationFrame(() => {
+    scrollFrame = null
+    syncCurrentChunkFromViewport()
+  })
 }
 
 function openNoteCreate() {
@@ -553,43 +587,6 @@ function goDetail() {
   router.push(`/student/literature/${literatureId.value}`)
 }
 
-/** 业务错误码 14107：该文献未绑定原文文件 */
-function isMissingFileError(error: unknown) {
-  const target = error as { code?: number; message?: string } | null
-  return target?.code === 14107 || (target?.message ?? '').includes('14107')
-}
-
-/** 换取 RustFS 预签名地址后打开原文 */
-async function downloadLiterature() {
-  const id = literatureId.value
-  if (!id) return
-
-  downloadLoading.value = true
-  try {
-    const ticket = await getLiteratureDownload(id)
-    await openLiteratureFile(ticket)
-    downloadCount.value = ticket.downloadCount
-    if (literature.value) {
-      literature.value = {
-        ...literature.value,
-        downloadCount: ticket.downloadCount,
-      }
-    }
-    ElMessage.success(`已开始下载：${ticket.fileName}`)
-  } catch (error) {
-    console.error(
-      'literature download failed, scenario=literature-download, literatureId=%s',
-      id,
-      error,
-    )
-    if (isMissingFileError(error)) {
-      ElMessage.warning('该文献未绑定原文文件，可联系上传者补充附件')
-    }
-  } finally {
-    downloadLoading.value = false
-  }
-}
-
 /** 导出本篇阅读笔记（GET /notes/export?literatureId=<id>） */
 async function exportNotes() {
   const id = literatureId.value
@@ -620,17 +617,25 @@ function goLibrary() {
 }
 
 onMounted(async () => {
+  window.addEventListener('scroll', handleScroll, { passive: true })
   await loadChunks()
   timer = setInterval(() => {
     elapsedSeconds.value += 1
   }, 1000)
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   if (timer) {
     clearInterval(timer)
     timer = null
   }
+  if (scrollFrame !== null) {
+    window.cancelAnimationFrame(scrollFrame)
+    scrollFrame = null
+  }
+  window.removeEventListener('scroll', handleScroll)
+  // 离开页面时补存一次，失败只在控制台告警
+  flushProgressSave()
 })
 </script>
 
@@ -678,72 +683,22 @@ onUnmounted(() => {
         aria-label="在线阅读"
       >
         <div class="reader-toolbar">
-          <el-button
-            :icon="favorited ? StarFilled : Star"
-            type="primary"
-            plain
-            :loading="favoriteLoading"
-            @click="toggleFavorite"
-          >
-            {{ favorited ? '已收藏' : '收藏' }}
-          </el-button>
           <el-button :icon="ArrowLeft" plain @click="goDetail"
             >返回详情</el-button
           >
           <el-button :icon="ChatLineRound" plain @click="goQa"
-            >去问答</el-button
+            >智能问答</el-button
           >
-          <el-button
-            :icon="Timer"
-            plain
-            type="primary"
-            :loading="progressSaving"
-            @click="saveProgress"
-          >
-            保存进度
-          </el-button>
           <el-button :icon="Notebook" plain @click="openNoteCreate"
             >新建笔记</el-button
           >
-          <el-button
-            :icon="Download"
-            plain
-            :loading="downloadLoading"
-            @click="downloadLiterature"
-          >
-            下载原文
-          </el-button>
           <el-button
             :icon="Document"
             plain
             :loading="noteExporting"
             @click="exportNotes"
           >
-            导出本篇笔记
-          </el-button>
-          <el-button
-            :icon="Cpu"
-            plain
-            :loading="indexBuilding"
-            @click="rebuildIndexAndReload"
-          >
-            重建索引并刷新
-          </el-button>
-          <el-button
-            :icon="Refresh"
-            plain
-            :loading="chunkLoading"
-            @click="fetchChunks()"
-          >
-            刷新分块
-          </el-button>
-          <el-button
-            :icon="Refresh"
-            plain
-            :loading="historyLoading"
-            @click="refreshHistory"
-          >
-            刷新进度
+            导出笔记
           </el-button>
         </div>
 
@@ -756,9 +711,6 @@ onUnmounted(() => {
                 </p>
                 <h2>{{ literature.title }}</h2>
               </div>
-              <el-tag :type="favorited ? 'success' : 'info'" effect="light">
-                {{ favorited ? '已收藏' : '未收藏' }}
-              </el-tag>
             </div>
 
             <div class="reader-meta">
@@ -788,9 +740,7 @@ onUnmounted(() => {
               </div>
               <div>
                 <span>下载次数</span>
-                <strong>{{
-                  downloadCount ?? literature.downloadCount ?? 0
-                }}</strong>
+                <strong>{{ literature.downloadCount ?? 0 }}</strong>
               </div>
             </section>
 
@@ -804,9 +754,7 @@ onUnmounted(() => {
             <section class="reader-section">
               <h3>AI 摘要</h3>
               <p>
-                {{
-                  literature.aiSummary || '暂无 AI 摘要，可在文献详情页生成。'
-                }}
+                {{ literature.aiSummary || '暂无 AI 摘要' }}
               </p>
             </section>
 
@@ -822,7 +770,7 @@ onUnmounted(() => {
                 {{
                   hasChunks
                     ? `共 ${totalChunks} 个分块，当前显示前 ${visibleChunks.length} 个，可使用右侧目录跳转或点击「加载更多」。`
-                    : '当前文献尚未建立正文分块索引，请点击「重建索引」或等待解析完成。'
+                    : emptyChunkHint
                 }}
               </p>
             </section>
@@ -836,6 +784,7 @@ onUnmounted(() => {
                 v-for="item in visibleChunks"
                 :id="`chunk-${item.id}`"
                 :key="item.key"
+                :data-chunk-index="item.chunkIndex"
                 class="chunk-card"
                 :class="{ 'is-current': item.chunkIndex === currentChunk }"
                 @click="jumpToChunk(item.chunkIndex)"
@@ -880,9 +829,7 @@ onUnmounted(() => {
               </div>
               <div v-if="!fallbackBlocks.length" class="reader-leaf">
                 <h3>暂无可用正文</h3>
-                <p class="reader-leaf__note">
-                  当前文献尚未建立正文分块索引，请点击「重建索引并刷新」或等待解析完成。
-                </p>
+                <p class="reader-leaf__note">{{ emptyChunkHint }}</p>
               </div>
             </section>
 
@@ -951,25 +898,18 @@ onUnmounted(() => {
                   :max="Math.max(totalChunks, 1)"
                   controls-position="right"
                 />
-                <span>分块序号 + 1（保存值）</span>
+                <span>上次阅读到的位置</span>
               </div>
               <div class="progress-live">
                 <span
-                  >当前第 {{ hasChunks ? currentChunk : '—' }} 块 / 共
-                  {{ totalChunks }} 块</span
+                  >当前阅读位置：第
+                  {{ hasChunks ? currentChunk + 1 : '—' }} 处 / 共
+                  {{ totalChunks }} 处</span
                 >
                 <span>累计阅读时长：{{ elapsedText }}</span>
                 <span>{{ savedProgressText }}</span>
+                <span>阅读位置会自动保存</span>
               </div>
-              <el-button
-                :icon="UploadFilled"
-                type="primary"
-                class="wide-action"
-                :loading="progressSaving"
-                @click="saveProgress"
-              >
-                保存进度
-              </el-button>
             </section>
           </article>
 
@@ -1013,14 +953,6 @@ onUnmounted(() => {
               </button>
             </div>
             <el-empty v-else description="暂无分块目录" />
-            <el-button
-              :icon="Cpu"
-              class="wide-action drawer-action"
-              :loading="indexBuilding"
-              @click="rebuildIndexAndReload"
-            >
-              重建索引并刷新
-            </el-button>
           </aside>
         </div>
       </section>

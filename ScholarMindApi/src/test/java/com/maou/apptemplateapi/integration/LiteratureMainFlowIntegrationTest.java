@@ -296,6 +296,25 @@ class LiteratureMainFlowIntegrationTest {
         assertThrows(BusinessException.class, () -> favoriteService.unfavorite(created.id()));
     }
 
+    @Test
+    @DisplayName("回归：反复收藏/取消收藏多轮不得抛唯一索引异常（客户反馈的 500）")
+    void favorite_repeatedToggleIsStable() {
+        authenticate(STUDENT_A_ID, UserRole.STUDENT);
+        LiteratureResponse created = literatureService.create(literatureRequest("收藏反复切换文献", "PRIVATE"));
+
+        // 逻辑删除会把 deleted 置 1，第二次取消时与历史行冲突 -> DuplicateKeyException -> HTTP 500。
+        // 修复后取消收藏为物理删除，任意轮次都应稳定。
+        for (int round = 1; round <= 3; round++) {
+            favoriteService.favorite(created.id());
+            assertTrue(favoriteService.isFavorited(created.id(), STUDENT_A_ID), "第 " + round + " 轮收藏后应为已收藏");
+            favoriteService.unfavorite(created.id());
+            assertFalse(favoriteService.isFavorited(created.id(), STUDENT_A_ID), "第 " + round + " 轮取消后应为未收藏");
+        }
+        // 最后一轮再收藏，确认仍可正常写入
+        favoriteService.favorite(created.id());
+        assertTrue(favoriteService.isFavorited(created.id(), STUDENT_A_ID));
+    }
+
     // ---------------------------------------------------------------- 引用管理
 
     @Test

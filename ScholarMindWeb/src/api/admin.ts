@@ -11,7 +11,7 @@ import type {
 } from '@/types/admin'
 import type { LiteratureCategory, PageResult } from '@/types/literature'
 
-import request from '@/utils/request'
+import request, { AI_REQUEST_TIMEOUT } from '@/utils/request'
 
 export function getAdminDashboard(params: { days?: number; limit?: number }) {
   return request.get<never, AdminDashboard>('/admin/statistics/dashboard', {
@@ -71,5 +71,6 @@ export function generateAdminOperationReport(payload: { days?: number }) {
   return request.post<never, AdminOperationReport>(
     '/admin/statistics/report',
     payload,
+    { timeout: AI_REQUEST_TIMEOUT },
   )
 }

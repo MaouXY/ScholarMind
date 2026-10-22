@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, Refresh, TrendCharts } from '@element-plus/icons-vue'
+import { Document, Refresh } from '@element-plus/icons-vue'
 
 import {
   generateAdminOperationReport,
@@ -39,8 +39,6 @@ const overviewCards = computed(() => {
     { label: '收藏总数', value: item?.favoriteTotal ?? 0 },
   ]
 })
-
-const aiTaskHealth = computed(() => dashboard.value?.aiTaskHealth ?? [])
 
 const keywordMax = computed(() =>
   Math.max(1, ...keywords.value.map((item) => item.total ?? 0)),
@@ -210,56 +208,28 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="admin-insight-grid">
-      <section class="glass-panel chart-panel" v-loading="loadingOverview">
-        <div class="panel-heading">
-          <div>
-            <p class="panel__eyebrow">Platform Overview</p>
-            <h3>平台概览</h3>
-          </div>
-          <el-button
-            :icon="Refresh"
-            plain
-            :loading="loadingOverview"
-            @click="fetchOverview"
-          >
-            刷新
-          </el-button>
+    <section class="glass-panel chart-panel" v-loading="loadingOverview">
+      <div class="panel-heading">
+        <div>
+          <p class="panel__eyebrow">Platform Overview</p>
+          <h3>平台概览</h3>
         </div>
-        <div class="admin-signal-grid" v-if="dashboard">
-          <span v-for="item in overviewCards" :key="item.label">
-            <strong>{{ item.value }}</strong>{{ item.label }}
-          </span>
-        </div>
-        <el-empty v-else description="暂无平台概览数据" />
-      </section>
-
-      <section class="glass-panel chart-panel" v-loading="loadingOverview">
-        <div class="panel-heading">
-          <div>
-            <p class="panel__eyebrow">AI Task Health</p>
-            <h3>AI 任务健康度</h3>
-          </div>
-          <el-icon><TrendCharts /></el-icon>
-        </div>
-        <div class="ai-health-list" v-if="aiTaskHealth.length">
-          <article v-for="item in aiTaskHealth" :key="item.taskType">
-            <div>
-              <strong>{{ item.taskType }}</strong>
-              <span>{{ Math.round((item.successRate || 0) * 100) }}%</span>
-            </div>
-            <div class="progress-line">
-              <span :style="{ width: `${Math.round((item.successRate || 0) * 100)}%` }" />
-            </div>
-            <small>
-              总计 {{ item.total }} · 失败 {{ item.failed }} · 超时 {{ item.timeout }} · 平均
-              {{ item.avgDurationMs }}ms
-            </small>
-          </article>
-        </div>
-        <el-empty v-else description="暂无 AI 任务统计" />
-      </section>
-    </div>
+        <el-button
+          :icon="Refresh"
+          plain
+          :loading="loadingOverview"
+          @click="fetchOverview"
+        >
+          刷新
+        </el-button>
+      </div>
+      <div class="admin-signal-grid" v-if="dashboard">
+        <span v-for="item in overviewCards" :key="item.label">
+          <strong>{{ item.value }}</strong>{{ item.label }}
+        </span>
+      </div>
+      <el-empty v-else description="暂无平台概览数据" />
+    </section>
 
     <section class="glass-panel chart-panel">
       <div class="panel-heading">

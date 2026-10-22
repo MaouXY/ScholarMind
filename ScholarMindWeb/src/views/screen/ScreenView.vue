@@ -75,7 +75,6 @@ const kpis = computed(() => [
   { label: '公开文献', value: overview.value.publishedLiteratureTotal, hint: `总量 ${overview.value.literatureTotal}` },
   { label: '阅读事件', value: overview.value.readingHistoryTotal, hint: `${overview.value.readingNoteTotal} 条笔记` },
   { label: '待审核', value: overview.value.pendingReviewTotal, hint: '公开发布队列' },
-  { label: 'AI 成功率', value: `${Math.round((overview.value.aiSuccessRate || 0) * 100)}%`, hint: `${overview.value.aiTaskFailedTotal} 次失败` },
 ])
 
 const maxReading = computed(() =>
@@ -121,12 +120,8 @@ onMounted(fetchDashboard)
         <p class="panel__eyebrow">Stage 5 Analytics Overview</p>
         <h2>观察文献、阅读、RAG 与 AI 任务的运行状态</h2>
         <p>
-          数据总览页从后台统计接口同步关键指标，帮助管理员快速判断增长、活跃、审核压力和 AI 服务健康度。
+          数据总览页从后台统计接口同步关键指标，帮助管理员快速判断文献增长、阅读活跃与内容沉淀情况。
         </p>
-      </div>
-      <div class="hero-stats">
-        <span><strong>{{ overview.qaTotal }}</strong>QA 记录</span>
-        <span><strong>{{ overview.ragDocumentTotal }}</strong>RAG 文档</span>
       </div>
     </div>
 
@@ -148,7 +143,7 @@ onMounted(fetchDashboard)
       </el-button>
     </section>
 
-    <div class="kpi-grid">
+    <div class="kpi-grid kpi-grid--three">
       <article v-for="item in kpis" :key="item.label" class="screen-kpi">
         <p>{{ item.label }}</p>
         <strong>{{ item.value }}</strong>
@@ -208,27 +203,6 @@ onMounted(fetchDashboard)
         </div>
       </section>
 
-      <section class="glass-panel chart-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="panel__eyebrow">AI Health</p>
-            <h3>AI 任务健康度</h3>
-          </div>
-        </div>
-        <div class="ai-health-list">
-          <article v-for="item in dashboard.aiTaskHealth" :key="item.taskType">
-            <div>
-              <strong>{{ item.taskType }}</strong>
-              <span>{{ Math.round((item.successRate || 0) * 100) }}%</span>
-            </div>
-            <div class="progress-line">
-              <span :style="{ width: `${Math.round((item.successRate || 0) * 100)}%` }" />
-            </div>
-            <small>成功 {{ item.success }} · 失败 {{ item.failed }} · 平均 {{ item.avgDurationMs }}ms</small>
-          </article>
-        </div>
-      </section>
-
       <section class="glass-panel ops-panel">
         <div class="panel-heading">
           <div>
@@ -246,3 +220,16 @@ onMounted(fetchDashboard)
     </div>
   </section>
 </template>
+
+<style scoped>
+/* 移除「AI 成功率」后仅剩 3 张 KPI 卡片，收窄为三列避免留空 */
+.kpi-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .kpi-grid--three {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -4,12 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft,
-  ChatLineRound,
-  Collection,
-  Cpu,
   Document,
   Download,
-  MagicStick,
   Reading,
   Refresh,
   Star,
@@ -18,10 +14,8 @@ import {
 
 import {
   favoriteLiterature,
-  generateLiteratureSummary,
   getLiteratureDownload,
   getLiteratureView,
-  rebuildLiteratureIndex,
   unfavoriteLiterature,
 } from '@/api/literature'
 import {
@@ -44,8 +38,6 @@ import type {
   Id,
   Literature,
   LiteratureDetail,
-  LiteratureIndexResult,
-  LiteratureSummaryResult,
   LiteratureStatus,
   LiteratureVisibility,
 } from '@/types/literature'
@@ -62,14 +54,10 @@ const literatureId = computed<Id>(() => {
 const literature = ref<Literature | null>(null)
 const detail = ref<LiteratureDetail | null>(null)
 const favorited = ref(false)
-const summaryResult = ref<LiteratureSummaryResult | null>(null)
-const indexResult = ref<LiteratureIndexResult | null>(null)
 const loadFailed = ref(false)
 
 const loading = ref(false)
 const favoriteLoading = ref(false)
-const summaryLoading = ref(false)
-const indexBuilding = ref(false)
 
 // 引用与下载：三种格式由后端即时生成，当前选中格式决定导出内容
 const citationItems = ref<CitationStyleItem[]>([])
@@ -93,25 +81,16 @@ const keywordTokens = computed(() =>
 )
 
 const summaryText = computed(
-  () =>
-    summaryResult.value?.summary ||
-    literature.value?.aiSummary ||
-    '暂无 AI 摘要，点击「生成摘要」让模型基于摘要与关键词生成结构化概览。',
+  () => literature.value?.aiSummary || '暂无 AI 摘要',
 )
 
-const summaryStatus = computed(
-  () =>
-    summaryResult.value?.status ||
-    (literature.value?.aiSummary ? '已生成' : '待生成'),
+const summaryStatus = computed(() =>
+  literature.value?.aiSummary ? '已生成' : '待生成',
 )
 
-const parseStatus = computed(
-  () =>
-    indexResult.value?.parseStatus ||
-    (literature.value ? '未记录（可重建）' : '未建立索引'),
+const parseStatus = computed(() =>
+  literature.value?.fileId ? '原文已绑定' : '原文未绑定',
 )
-
-const chunkCount = computed(() => indexResult.value?.chunkCount ?? 0)
 
 const abstractParagraphs = computed(() =>
   (literature.value?.abstractText ?? '')
@@ -235,71 +214,30 @@ async function loadDetail() {
 
 async function toggleFavorite() {
   const id = literature.value?.id ?? literatureId.value
-  if (!id) return
+  if (!id || favoriteLoading.value) return
 
+  // 先乐观更新，失败时恢复原状态，避免请求中重复点击
+  const previous = favorited.value
+  favorited.value = !previous
   favoriteLoading.value = true
   try {
-    if (favorited.value) {
+    if (previous) {
       await unfavoriteLiterature(id)
-      favorited.value = false
       ElMessage.success('已取消收藏')
     } else {
       await favoriteLiterature(id)
-      favorited.value = true
       ElMessage.success('已收藏该文献')
     }
   } catch (error) {
+    favorited.value = previous
     console.error(
       'favorite toggle failed, scenario=literature-favorite-toggle, literatureId=%s, favorited=%s',
       id,
-      favorited.value,
+      previous,
       error,
     )
   } finally {
     favoriteLoading.value = false
-  }
-}
-
-async function regenerateSummary() {
-  const id = literature.value?.id ?? literatureId.value
-  if (!id) return
-
-  summaryLoading.value = true
-  try {
-    const result = await generateLiteratureSummary(id)
-    summaryResult.value = result
-    if (literature.value) {
-      literature.value = { ...literature.value, aiSummary: result.summary }
-    }
-    ElMessage.success('AI 摘要已更新')
-  } catch (error) {
-    console.error(
-      'literature summary generate failed, scenario=literature-ai-summary, literatureId=%s',
-      id,
-      error,
-    )
-  } finally {
-    summaryLoading.value = false
-  }
-}
-
-async function rebuildIndex() {
-  const id = literature.value?.id ?? literatureId.value
-  if (!id) return
-
-  indexBuilding.value = true
-  try {
-    const result = await rebuildLiteratureIndex(id)
-    indexResult.value = result
-    ElMessage.success(`索引已重建，生成 ${result.chunkCount} 个分块`)
-  } catch (error) {
-    console.error(
-      'literature index rebuild failed, scenario=literature-index-rebuild, literatureId=%s',
-      id,
-      error,
-    )
-  } finally {
-    indexBuilding.value = false
   }
 }
 
@@ -512,10 +450,6 @@ function openReader() {
   router.push(`/student/literature/${literatureId.value}/read`)
 }
 
-function openQa() {
-  router.push(`/student/literature/${literatureId.value}/qa`)
-}
-
 function goLibrary() {
   router.push('/student/library')
 }
@@ -540,13 +474,13 @@ onMounted(async () => {
         <h2>一页读懂元数据、AI 摘要与索引状态</h2>
         <p>
           文献详情页集中呈现题录信息、AI
-          摘要、解析与向量索引状态，并作为进入在线阅读与智能问答的统一入口。
+          摘要与阅读记录，并作为进入在线阅读的统一入口。
         </p>
       </div>
       <div class="hero-orbit" aria-hidden="true">
         <span>Detail</span>
         <span>Read</span>
-        <span>Ask</span>
+        <span>Cite</span>
       </div>
     </div>
 
@@ -628,8 +562,8 @@ onMounted(async () => {
             下载次数
           </span>
           <span>
-            <strong>{{ chunkCount }}</strong>
-            索引分块
+            <strong>{{ detail?.readingHistory?.progress ?? 0 }}%</strong>
+            阅读进度
           </span>
           <span>
             <strong>{{ collectedCitationCount }}</strong>
@@ -641,7 +575,6 @@ onMounted(async () => {
           <el-button :icon="Document" type="primary" @click="openReader"
             >在线阅读</el-button
           >
-          <el-button :icon="ChatLineRound" @click="openQa">智能问答</el-button>
           <el-button
             :icon="Download"
             type="primary"
@@ -655,28 +588,10 @@ onMounted(async () => {
             :icon="favorited ? StarFilled : Star"
             plain
             :loading="favoriteLoading"
+            :disabled="favoriteLoading"
             @click="toggleFavorite"
           >
-            {{ favorited ? '取消收藏' : '收藏文献' }}
-          </el-button>
-          <el-button :icon="Collection" plain @click="goShelf"
-            >我的书房</el-button
-          >
-          <el-button
-            :icon="MagicStick"
-            plain
-            :loading="summaryLoading"
-            @click="regenerateSummary"
-          >
-            {{ literature.aiSummary ? '重新生成摘要' : '生成摘要' }}
-          </el-button>
-          <el-button
-            :icon="Cpu"
-            plain
-            :loading="indexBuilding"
-            @click="rebuildIndex"
-          >
-            重建索引
+            {{ favorited ? '取消收藏' : '收藏' }}
           </el-button>
           <el-button :icon="ArrowLeft" plain @click="goLibrary"
             >返回文献库</el-button
@@ -859,15 +774,7 @@ onMounted(async () => {
               <h3>AI 摘要</h3>
             </div>
             <div class="detail-actions">
-              <el-tag effect="plain">summaryStatus: {{ summaryStatus }}</el-tag>
-              <el-button
-                :icon="Refresh"
-                plain
-                :loading="summaryLoading"
-                @click="regenerateSummary"
-              >
-                {{ literature.aiSummary ? '重新生成摘要' : '生成摘要' }}
-              </el-button>
+              <el-tag effect="plain">状态：{{ summaryStatus }}</el-tag>
             </div>
           </div>
           <p>{{ summaryText }}</p>
@@ -889,29 +796,21 @@ onMounted(async () => {
           <el-empty v-else description="暂无摘要，可在文献库编辑补充" />
         </section>
 
-        <section class="glass-panel" aria-label="索引与解析状态">
+        <section class="glass-panel" aria-label="阅读与文献状态">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Index Status</p>
-              <h3>索引 / 解析状态</h3>
+              <p class="panel__eyebrow">Reading &amp; Status</p>
+              <h3>阅读与文献状态</h3>
             </div>
-            <el-button
-              :icon="Cpu"
-              plain
-              :loading="indexBuilding"
-              @click="rebuildIndex"
-            >
-              重建索引
-            </el-button>
           </div>
           <section class="parse-status-grid">
             <div>
-              <span>解析状态</span>
+              <span>原文状态</span>
               <strong>{{ parseStatus }}</strong>
             </div>
             <div>
-              <span>分块数量</span>
-              <strong>{{ indexResult ? chunkCount : '—' }}</strong>
+              <span>上次阅读位置</span>
+              <strong>{{ detail?.readingHistory?.lastPage ?? '—' }}</strong>
             </div>
             <div>
               <span>可见性</span>

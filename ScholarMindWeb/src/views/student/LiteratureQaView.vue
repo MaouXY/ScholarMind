@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft,
   ChatLineRound,
-  DataAnalysis,
-  Guide,
   Reading,
   Refresh,
   Search,
@@ -14,7 +12,6 @@ import {
 
 import {
   askLiteratureQuestion,
-  compareLiteratures,
   getLiteratureView,
   listLiteratureQaRecords,
 } from '@/api/literature'
@@ -22,7 +19,6 @@ import { displayCategoryName } from '@/utils/format'
 import type {
   Id,
   Literature,
-  LiteratureCompareResult,
   LiteratureQuestionResult,
   LiteratureReferenceChunk,
 } from '@/types/literature'
@@ -39,38 +35,22 @@ const literatureId = computed<Id>(() => {
 const literature = ref<Literature | null>(null)
 const qaRecords = ref<LiteratureQuestionResult[]>([])
 const activeAnswer = ref<LiteratureQuestionResult | null>(null)
-const compareResult = ref<LiteratureCompareResult | null>(null)
 
 const loading = ref(false)
 const asking = ref(false)
+const askSlow = ref(false)
 const historyLoading = ref(false)
-const compareLoading = ref(false)
 const loadFailed = ref(false)
+
+let askSlowTimer: ReturnType<typeof setTimeout> | null = null
 
 const qaForm = reactive({
   question: '',
   limit: 4,
 })
 
-const compareForm = reactive({
-  ids: '',
-})
-
 // 建议问题：点击后填入输入框
 const suggestedQuestions = ['这篇文献的研究问题是什么？', '作者用了什么方法？', '结论与局限分别是什么？']
-
-const compareIdList = computed<Id[]>(() =>
-  compareForm.ids
-    .split(/[,，;；\s、]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .filter((id, index, ids) => ids.indexOf(id) === index),
-)
-
-const comparePreviewIds = computed<Id[]>(() => {
-  const ids = [literatureId.value, ...compareIdList.value].filter(Boolean)
-  return ids.filter((id, index) => ids.indexOf(id) === index)
-})
 
 const references = computed<LiteratureReferenceChunk[]>(() => activeAnswer.value?.references ?? [])
 
@@ -160,6 +140,13 @@ async function fetchQaHistory() {
   }
 }
 
+function clearAskSlowTimer() {
+  if (askSlowTimer !== null) {
+    clearTimeout(askSlowTimer)
+    askSlowTimer = null
+  }
+}
+
 async function askQuestion() {
   const id = literatureId.value
   if (!id) return
@@ -169,6 +156,11 @@ async function askQuestion() {
   }
 
   asking.value = true
+  askSlow.value = false
+  clearAskSlowTimer()
+  askSlowTimer = setTimeout(() => {
+    askSlow.value = true
+  }, 10000)
   try {
     const result = await askLiteratureQuestion(id, {
       question: qaForm.question,
@@ -190,28 +182,8 @@ async function askQuestion() {
     )
   } finally {
     asking.value = false
-  }
-}
-
-async function compareSelected() {
-  const ids = comparePreviewIds.value
-  if (ids.length < 2) {
-    ElMessage.warning('至少需要两篇文献才能对比，请补充其他文献 ID')
-    return
-  }
-
-  compareLoading.value = true
-  try {
-    compareResult.value = await compareLiteratures({ literatureIds: ids.slice(0, 6) })
-    ElMessage.success('多文献对比已生成')
-  } catch (error) {
-    console.error(
-      'literature compare failed, scenario=literature-ai-compare, literatureIds=%s',
-      ids.join(','),
-      error,
-    )
-  } finally {
-    compareLoading.value = false
+    askSlow.value = false
+    clearAskSlowTimer()
   }
 }
 
@@ -227,6 +199,10 @@ function goReader() {
   router.push(`/student/literature/${literatureId.value}/read`)
 }
 
+onBeforeUnmount(() => {
+  clearAskSlowTimer()
+})
+
 onMounted(async () => {
   await loadLiterature()
   await fetchQaHistory()
@@ -240,13 +216,13 @@ onMounted(async () => {
         <p class="panel__eyebrow">RAG Question Answering</p>
         <h2>用检索到的原文片段回答论文问题</h2>
         <p>
-          问答页围绕当前文献发起 RAG 提问，回答与引用片段一一对应，并保留历史问答与多文献对比结果。
+          问答页围绕当前文献发起 RAG 提问，回答与引用片段一一对应，并保留历史问答记录。
         </p>
       </div>
       <div class="hero-orbit" aria-hidden="true">
         <span>Ask</span>
         <span>Cite</span>
-        <span>Compare</span>
+        <span>Read</span>
       </div>
     </div>
 
@@ -316,10 +292,14 @@ onMounted(async () => {
             type="primary"
             class="wide-action"
             :loading="asking"
+            :disabled="asking"
             @click="askQuestion"
           >
             提问
           </el-button>
+          <p v-if="askSlow" class="reader-leaf__note">
+            AI 正在生成，请稍候…
+          </p>
           <section class="rag-search-box">
             <div class="panel-heading">
               <div>
@@ -418,41 +398,6 @@ onMounted(async () => {
             </button>
           </div>
           <el-empty v-else description="暂无历史问答记录" />
-        </section>
-
-        <section class="compare-panel" aria-label="多文献对比">
-          <div class="panel-heading">
-            <div>
-              <p class="panel__eyebrow">Literature Compare</p>
-              <h3>多文献对比</h3>
-            </div>
-            <el-button
-              :icon="DataAnalysis"
-              type="primary"
-              :loading="compareLoading"
-              @click="compareSelected"
-            >
-              生成对比
-            </el-button>
-          </div>
-          <div class="compare-id-row">
-            <el-input
-              v-model="compareForm.ids"
-              :prefix-icon="Guide"
-              placeholder="补充其他文献 ID，用逗号分隔，例如 1200000000000000002,1200000000000000003"
-            />
-            <span>当前文献已默认包含</span>
-          </div>
-          <div class="keyword-ribbon">
-            <span v-for="id in comparePreviewIds" :key="id">#{{ id }}</span>
-          </div>
-          <template v-if="compareResult">
-            <p>{{ compareResult.analysis }}</p>
-            <div class="keyword-ribbon">
-              <span v-for="id in compareResult.literatureIds" :key="id">#{{ id }}</span>
-            </div>
-          </template>
-          <el-empty v-else description="输入至少一篇其他文献 ID 后生成对比分析" />
         </section>
       </div>
     </template>

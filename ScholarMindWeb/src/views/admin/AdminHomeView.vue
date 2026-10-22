@@ -3,7 +3,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   CircleCheck,
-  Cpu,
   DataAnalysis,
   DocumentAdd,
   Refresh,
@@ -164,11 +163,8 @@ const overviewCards = computed(() => {
     { label: '用户总数', value: item.userTotal, hint: `${item.studentTotal} 学生 / ${item.teacherTotal} 教师`, icon: User },
     { label: '文献总量', value: item.literatureTotal, hint: `${item.publishedLiteratureTotal} 已发布`, icon: DocumentAdd },
     { label: '待审核', value: item.pendingReviewTotal, hint: `${item.privateLiteratureTotal} 私有文献`, icon: Timer },
-    { label: 'AI 成功率', value: `${Math.round((item.aiSuccessRate || 0) * 100)}%`, hint: `${item.avgAiDurationMs || 0}ms 平均`, icon: Cpu },
   ]
 })
-
-const reviewPressure = computed(() => dashboard.value.overview.pendingReviewTotal + pending.value.length)
 
 const demoPending: Literature[] = [
   {
@@ -224,11 +220,6 @@ function openKnowledgeEdit(item: KnowledgeDocument) {
     enabled: item.enabled,
   })
   knowledgeDrawer.value = true
-}
-
-function formatBytes(bytes: number) {
-  if (!bytes) return '0 MB'
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 function statusLabel(status: string) {
@@ -365,14 +356,10 @@ onMounted(async () => {
     <div class="spatial-hero compact-hero">
       <div>
         <p class="panel__eyebrow">Stage 5 Admin Command</p>
-        <h2>把审核、知识库和平台健康度放在一个后台管理舱</h2>
+        <h2>把文献审核与知识库维护放在一个后台管理舱</h2>
         <p>
           第五阶段聚焦后台管理与数据统计：管理员可以处理公开发布、维护 RAG 知识库，并观察用户、文献、AI 任务的关键运行指标。
         </p>
-      </div>
-      <div class="hero-stats">
-        <span><strong>{{ reviewPressure }}</strong>审核压力</span>
-        <span><strong>{{ dashboard.overview.ragDocumentTotal }}</strong>RAG 文档</span>
       </div>
     </div>
 
@@ -394,7 +381,7 @@ onMounted(async () => {
       </el-button>
     </section>
 
-    <section class="admin-kpi-grid">
+    <section class="admin-kpi-grid admin-kpi-grid--three">
       <article v-for="item in overviewCards" :key="item.label" class="screen-kpi">
         <el-icon><component :is="item.icon" /></el-icon>
         <p>{{ item.label }}</p>
@@ -462,35 +449,6 @@ onMounted(async () => {
             </div>
           </article>
         </div>
-      </section>
-
-      <section class="glass-panel ops-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="panel__eyebrow">Operational Health</p>
-            <h3>平台运行健康</h3>
-          </div>
-          <el-tag type="success" effect="light">{{ Math.round((dashboard.overview.aiSuccessRate || 0) * 100) }}%</el-tag>
-        </div>
-        <div class="admin-signal-grid">
-          <span><strong>{{ dashboard.overview.fileTotal }}</strong>文件资产</span>
-          <span><strong>{{ formatBytes(dashboard.overview.fileSizeBytes) }}</strong>存储占用</span>
-          <span><strong>{{ dashboard.overview.readingNoteTotal }}</strong>阅读笔记</span>
-          <span><strong>{{ dashboard.overview.qaTotal }}</strong>问答记录</span>
-        </div>
-        <div class="ai-health-list" v-if="dashboard.aiTaskHealth.length">
-          <article v-for="item in dashboard.aiTaskHealth" :key="item.taskType">
-            <div>
-              <strong>{{ item.taskType }}</strong>
-              <span>{{ item.success }} / {{ item.total }} 成功</span>
-            </div>
-            <div class="progress-line">
-              <span :style="{ width: `${Math.round((item.successRate || 0) * 100)}%` }" />
-            </div>
-            <small>失败 {{ item.failed }} · 超时 {{ item.timeout }} · 平均 {{ item.avgDurationMs }}ms</small>
-          </article>
-        </div>
-        <el-empty v-else description="暂无 AI 任务统计" />
       </section>
     </div>
 
@@ -561,3 +519,16 @@ onMounted(async () => {
     </el-drawer>
   </section>
 </template>
+
+<style scoped>
+/* 移除「AI 成功率」后仅剩 3 张 KPI 卡片，收窄为三列避免留空 */
+.admin-kpi-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .admin-kpi-grid--three {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

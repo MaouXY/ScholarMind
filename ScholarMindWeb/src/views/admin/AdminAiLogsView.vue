@@ -7,7 +7,6 @@ import {
   Refresh,
   Search,
   Timer,
-  TrendCharts,
   Warning,
 } from '@element-plus/icons-vue'
 
@@ -80,12 +79,6 @@ const kpiCards = computed(() => {
       value: item?.timeout ?? 0,
       hint: '超过时限终止',
       icon: Timer,
-    },
-    {
-      label: '成功率',
-      value: `${Math.round((item?.successRate ?? 0) * 100)}%`,
-      hint: '成功 / 总调用',
-      icon: TrendCharts,
     },
     {
       label: '平均耗时',
@@ -204,16 +197,13 @@ onMounted(() => {
     <div class="spatial-hero compact-hero">
       <div>
         <p class="panel__eyebrow">AI Task Observability</p>
-        <h2>观察每一次 AI 调用的成功率与耗时</h2>
+        <h2>观察每一次 AI 调用的状态与耗时</h2>
         <p>
           日志页汇总 AI 任务的调用总量、失败与超时情况，并保留每次调用的输入输出预览，方便排查模型异常、超时和业务参数问题。
         </p>
       </div>
       <div class="hero-stats">
         <span><strong>{{ summary?.total ?? 0 }}</strong>累计调用</span>
-        <span>
-          <strong>{{ Math.round((summary?.successRate ?? 0) * 100) }}%</strong>成功率
-        </span>
       </div>
     </div>
 

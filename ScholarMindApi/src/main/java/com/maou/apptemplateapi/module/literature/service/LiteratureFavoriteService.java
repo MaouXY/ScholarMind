@@ -16,6 +16,7 @@ import com.maou.apptemplateapi.module.literature.mapper.LiteratureFavoriteMapper
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,7 +54,15 @@ public class LiteratureFavoriteService {
         LiteratureFavorite favorite = new LiteratureFavorite();
         favorite.setUserId(currentUser.getId());
         favorite.setLiteratureId(literature.getId());
-        favoriteMapper.insert(favorite);
+        try {
+            favoriteMapper.insert(favorite);
+        } catch (DuplicateKeyException exception) {
+            // 并发双击等场景：两个请求同时通过上面的存在性检查，后到者命中唯一索引。
+            // 这里必须转成业务错误（HTTP 200 + 14105），否则会以未处理异常的形式返回 500。
+            log.warn("literature favorite concurrent duplicate, scenario=literature-favorite-create, literatureId={}, userId={}",
+                    literatureId, currentUser.getId());
+            throw new BusinessException(ErrorCode.LITERATURE_FAVORITE_DUPLICATED);
+        }
         log.info("literature favorited, scenario=literature-favorite-create, literatureId={}, userId={}, favoriteId={}",
                 literatureId, currentUser.getId(), favorite.getId());
         return toResponse(favoriteMapper.selectById(favorite.getId()), literature, categoryName(literature.getCategoryId()));
@@ -72,7 +81,10 @@ public class LiteratureFavoriteService {
                     literatureId, currentUser.getId());
             throw new BusinessException(ErrorCode.LITERATURE_FAVORITE_NOT_FOUND);
         }
-        favoriteMapper.deleteById(favorite.getId());
+        // 物理删除而不是逻辑删除：唯一索引包含 deleted 列，逻辑删除会让
+        // 「收藏 → 取消 → 收藏 → 取消」的第二次取消与历史 deleted=1 行冲突（HTTP 500）。
+        // 同时清理该用户对该文献可能残留的历史逻辑删除行，保证状态唯一。
+        favoriteMapper.hardDeleteByUserAndLiterature(currentUser.getId(), literatureId);
         log.info("literature unfavorited, scenario=literature-favorite-delete, literatureId={}, userId={}, favoriteId={}",
                 literatureId, currentUser.getId(), favorite.getId());
     }

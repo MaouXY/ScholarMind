@@ -10,6 +10,9 @@ interface ApiResponse<T> {
   data: T
 }
 
+/** AI 类请求（摘要、问答、向量索引、运营报告等）通常需要 20~90 秒 */
+export const AI_REQUEST_TIMEOUT = 120000
+
 const request = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
   timeout: 15000,
@@ -38,6 +41,10 @@ request.interceptors.response.use(
   },
   (error) => {
     const status = error?.response?.status
+    const isTimeout =
+      error?.code === 'ECONNABORTED' ||
+      error?.code === 'ETIMEDOUT' ||
+      /timeout/i.test(String(error?.message ?? ''))
     if (status === 401) {
       if (import.meta.env.VITE_USE_MOCK_AUTH === 'true') {
         console.error(
@@ -50,6 +57,8 @@ request.interceptors.response.use(
         ElMessage.error('登录已失效，请重新登录')
         router.push('/login')
       }
+    } else if (isTimeout) {
+      ElMessage.error('AI 处理较慢，已超过等待时间，请稍后重试')
     } else {
       ElMessage.error(
         error?.response?.data?.message || error.message || '网络异常',

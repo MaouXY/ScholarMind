@@ -3,19 +3,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ChatLineRound,
-  Collection,
-  CollectionTag,
   Connection,
-  Cpu,
-  DataAnalysis,
   DocumentAdd,
   EditPen,
   InfoFilled,
-  MagicStick,
   Notebook,
   Reading,
-  Refresh,
   Search,
   Star,
   StarFilled,
@@ -23,24 +16,18 @@ import {
 } from '@element-plus/icons-vue'
 
 import {
-  askLiteratureQuestion,
-  compareLiteratures,
-  compareRetrieval,
   createLiterature,
   createReadingNote,
   deleteReadingNote,
   favoriteLiterature,
-  generateLiteratureSummary,
   getLiteratureView,
+  getReadingHistory,
   hybridSearch,
   listCategories,
-  listLiteratureQaRecords,
   listLiteratures,
   listReadingNotes,
   markLiteratureRead,
   naturalLanguageSearch,
-  rebuildLiteratureIndex,
-  saveReadingHistory,
   semanticSearch,
   submitLiterature,
   unfavoriteLiterature,
@@ -49,26 +36,21 @@ import {
   uploadLiteratureFile,
 } from '@/api/literature'
 import { displayCategoryName } from '@/utils/format'
+import { getStoredUser } from '@/utils/storage'
 import '@/styles/literature-ext.css'
 import type {
   Id,
   Literature,
   LiteratureCategory,
-  LiteratureCompareResult,
   LiteratureDetail,
-  LiteratureIndexResult,
   LiteraturePayload,
-  LiteratureQuestionResult,
   LiteratureReferenceChunk,
   LiteratureSearchResult,
-  LiteratureSummaryResult,
   LiteratureStatus,
   LiteratureVisibility,
   ReadingHistory,
   ReadingNote,
   ReadingNotePayload,
-  RetrievalCompareResult,
-  RetrievalHit,
 } from '@/types/literature'
 
 const demoLiteratures: Literature[] = [
@@ -158,47 +140,35 @@ const literatures = ref<Literature[]>([])
 const selected = ref<Literature | null>(null)
 const detail = ref<LiteratureDetail | null>(null)
 const notes = ref<ReadingNote[]>([])
+const notesTotal = ref(0)
 const selectedNote = ref<ReadingNote | null>(null)
 const searchInsight = ref<LiteratureSearchResult | null>(null)
-const indexResult = ref<LiteratureIndexResult | null>(null)
-const summaryResult = ref<LiteratureSummaryResult | null>(null)
-const qaRecords = ref<LiteratureQuestionResult[]>([])
-const activeAnswer = ref<LiteratureQuestionResult | null>(null)
-const compareResult = ref<LiteratureCompareResult | null>(null)
+const readingHistory = ref<ReadingHistory | null>(null)
 const loading = ref(false)
 const detailLoading = ref(false)
 const saving = ref(false)
 const uploading = ref(false)
 const noteSaving = ref(false)
-const historySaving = ref(false)
 const ragSearching = ref(false)
-const indexBuilding = ref(false)
-const summaryLoading = ref(false)
-const qaLoading = ref(false)
-const qaHistoryLoading = ref(false)
-const compareLoading = ref(false)
 const editorVisible = ref(false)
 const noteDrawerVisible = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
 const noteMode = ref<'create' | 'edit'>('create')
 const favorited = ref(false)
+const favoriteLoading = ref(false)
+const abstractExpanded = ref(false)
 
 const router = useRouter()
 
-// 跳转到当前文献的独立页面：详情 / 在线阅读 / 智能问答
-function openLiteraturePage(target: 'detail' | 'read' | 'qa') {
+// 跳转到当前文献的独立页面：详情 / 在线阅读
+function openLiteraturePage(target: 'detail' | 'read') {
   const literatureId = currentLiterature.value?.id
   if (!literatureId) {
     ElMessage.warning('请先选择一篇文献')
     return
   }
-  const suffix = target === 'detail' ? '' : target === 'read' ? '/read' : '/qa'
+  const suffix = target === 'detail' ? '' : '/read'
   router.push(`/student/literature/${literatureId}${suffix}`)
-}
-
-// 跳转到我的书房：收藏、阅读历史与笔记的统一入口
-function goShelf() {
-  router.push('/student/shelf')
 }
 
 const query = reactive({
@@ -223,30 +193,10 @@ const form = reactive<LiteraturePayload>({
   keywords: '',
 })
 
-const readingState = reactive({
-  lastPage: 1,
-  progress: 18,
-  readDuration: 12,
-})
-
 const ragForm = reactive({
   mode: 'natural' as 'natural' | 'semantic' | 'hybrid',
   query: '帮我找出适合构建 AI 文献检索助手的研究方法',
   limit: 5,
-})
-
-const retrievalForm = reactive({
-  query: '混合检索 如何避免纯向量召回的问题',
-  limit: 5,
-})
-
-const retrievalCompare = ref<RetrievalCompareResult | null>(null)
-
-const retrievalComparing = ref(false)
-
-const qaForm = reactive({
-  question: '这篇论文的研究问题、方法和可复用模块分别是什么？',
-  limit: 4,
 })
 
 const noteForm = reactive<ReadingNotePayload>({
@@ -262,41 +212,16 @@ const currentLiterature = computed(
   () => detail.value?.literature ?? selected.value,
 )
 
-const compareIds = computed(() =>
-  literatures.value
-    .slice(0, 3)
-    .map((item) => item.id)
-    .filter((id, index, ids) => ids.indexOf(id) === index),
-)
+const currentUserId = ref(getStoredUser()?.id ?? '')
 
-const keywordTokens = computed(() =>
-  (currentLiterature.value?.keywords ?? '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean),
-)
-
-const parseSignals = computed(() => {
-  const item = currentLiterature.value
-  return [
-    {
-      label: '元数据',
-      value: item?.author || item?.source ? '已解析' : '待补全',
-    },
-    { label: '摘要', value: item?.abstractText ? '已提取' : '待解析' },
-    {
-      label: '向量索引',
-      value: indexResult.value?.chunkCount
-        ? `${indexResult.value.chunkCount} 块`
-        : '可重建',
-    },
-    {
-      label: 'RAG 引用',
-      value: activeAnswer.value?.references?.length
-        ? `${activeAnswer.value.references.length} 条`
-        : '待提问',
-    },
-  ]
+// 仅当前登录用户上传的文献才展示「编辑信息 / 提交审核」
+const isOwnLiterature = computed(() => {
+  const uploaderId = currentLiterature.value?.uploaderId
+  return Boolean(
+    uploaderId &&
+      currentUserId.value &&
+      String(uploaderId) === String(currentUserId.value),
+  )
 })
 
 const ragModeLabel = computed(() => {
@@ -304,32 +229,6 @@ const ragModeLabel = computed(() => {
   if (ragForm.mode === 'hybrid') return '混合检索'
   return '自然语言'
 })
-
-// 检索消融对比：三列结果分别来自纯关键词、纯向量与 RRF 融合
-const sparseHits = computed(() => retrievalCompare.value?.sparse ?? [])
-const denseHits = computed(() => retrievalCompare.value?.dense ?? [])
-const hybridHits = computed(() => retrievalCompare.value?.hybrid ?? [])
-const denseAvailable = computed(
-  () => retrievalCompare.value?.denseAvailable !== false,
-)
-
-const outlineItems = computed(() => [
-  {
-    title: '研究问题',
-    content: currentLiterature.value?.abstractText
-      ? '从摘要中定位研究对象、用户需求与问题边界。'
-      : '等待解析摘要后自动提炼研究问题。',
-  },
-  {
-    title: '方法路径',
-    content:
-      '拆解模型、系统流程、检索策略或推荐策略，标注可以复用到系统设计的部分。',
-  },
-  {
-    title: '证据材料',
-    content: '记录数据来源、实验指标、对比方法和作者给出的局限性。',
-  },
-])
 
 function statusLabel(status?: LiteratureStatus) {
   const labels: Record<LiteratureStatus, string> = {
@@ -352,49 +251,9 @@ type RetrievalBadge = {
   tone: 'primary' | 'success' | 'info' | 'warning'
 }
 
-function formatScore(score?: number | null, digits = 3) {
-  if (typeof score !== 'number' || Number.isNaN(score)) return '—'
-  return score.toFixed(digits)
-}
-
 function scorePercent(score?: number | null) {
   if (typeof score !== 'number' || Number.isNaN(score)) return 0
   return Math.round(Math.min(1, Math.max(0, score)) * 100)
-}
-
-// 分块摘要：压缩空白并截断，避免三列对比被长正文撑开
-function hitExcerpt(content?: string | null, maxLength = 96) {
-  const normalized = (content ?? '').replace(/\s+/g, ' ').trim()
-  if (!normalized) return '暂无分块正文'
-  return normalized.length > maxLength
-    ? `${normalized.slice(0, maxLength)}…`
-    : normalized
-}
-
-function rankText(prefix: string, rank?: number | null) {
-  return typeof rank === 'number' ? `${prefix}#${rank}` : `${prefix}#—`
-}
-
-function hitSparseBadge(hit: RetrievalHit): RetrievalBadge {
-  return { label: rankText('稀疏', hit.sparseRank ?? hit.rank), tone: 'info' }
-}
-
-function hitDenseBadge(hit: RetrievalHit): RetrievalBadge {
-  return { label: rankText('向量', hit.denseRank ?? hit.rank), tone: 'success' }
-}
-
-function hitFusionBadges(hit: RetrievalHit): RetrievalBadge[] {
-  return [
-    hitSparseBadge(hit),
-    hitDenseBadge(hit),
-    { label: rankText('融合', hit.rank), tone: 'primary' },
-  ]
-}
-
-function hitRrfText(hit: RetrievalHit) {
-  return typeof hit.rrfScore === 'number'
-    ? `RRF ${hit.rrfScore.toFixed(4)}`
-    : null
 }
 
 // 语义 / 混合检索返回的引用片段可能携带稀疏、稠密名次与 RRF 融合分（旧数据可能为空）
@@ -417,12 +276,89 @@ function referenceRankBadges(
   return badges
 }
 
-function hydrateHistory(history?: ReadingHistory | null) {
-  readingState.lastPage = history?.lastPage ?? 1
-  readingState.progress =
-    history?.progress ??
-    Math.min(92, Math.max(18, (currentLiterature.value?.readCount ?? 0) * 2))
-  readingState.readDuration = history?.readDuration ?? 12
+function formatDateTime(value?: string | null) {
+  if (!value) return ''
+  return value.slice(0, 16).replace('T', ' ')
+}
+
+function truncateText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (!normalized) return '暂无'
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength)}…`
+    : normalized
+}
+
+const categoryNameText = computed(() => {
+  const item = currentLiterature.value
+  if (!item) return '—'
+  if (item.categoryName) return displayCategoryName(item.categoryName)
+  const matched = categories.value.find(
+    (category) => category.id === item.categoryId,
+  )
+  return matched ? displayCategoryName(matched.name) : '—'
+})
+
+const abstractText = computed(() =>
+  (currentLiterature.value?.abstractText ?? '').trim(),
+)
+
+const abstractLong = computed(() => abstractText.value.length > 90)
+
+const hasReadingHistory = computed(() => {
+  const history = readingHistory.value
+  if (!history) return false
+  return (
+    history.progress != null ||
+    history.lastPage != null ||
+    history.readDuration != null ||
+    Boolean(history.updatedAt)
+  )
+})
+
+const readingProgressText = computed(() => {
+  const history = readingHistory.value
+  if (!history || !hasReadingHistory.value) return '暂无阅读记录'
+  const parts: string[] = [
+    typeof history.progress === 'number'
+      ? `进度 ${Math.round(history.progress)}%`
+      : '进度 —',
+  ]
+  if (typeof history.lastPage === 'number' && history.lastPage > 0) {
+    parts.push(`分块/页码 ${history.lastPage}`)
+  }
+  const updatedAt = formatDateTime(history.updatedAt)
+  parts.push(updatedAt ? `上次阅读 ${updatedAt}` : '上次阅读时间未记录')
+  return parts.join(' · ')
+})
+
+const latestNote = computed(() =>
+  [...notes.value].sort((left, right) => {
+    const leftTime = left.updatedAt ?? left.createdAt ?? ''
+    const rightTime = right.updatedAt ?? right.createdAt ?? ''
+    return rightTime.localeCompare(leftTime)
+  })[0],
+)
+
+const noteTotalText = computed(() => {
+  const totalCount = notesTotal.value
+  if (!totalCount) return '暂无阅读笔记'
+  const latest = latestNote.value
+  if (!latest) return `共 ${totalCount} 条`
+  return `共 ${totalCount} 条 · 最新：${truncateText(latest.content, 60)}`
+})
+
+async function loadReadingHistory(literatureId: Id) {
+  try {
+    readingHistory.value = await getReadingHistory(literatureId)
+  } catch (error) {
+    console.error(
+      'reading history detail failed, scenario=reading-history-detail, literatureId=%s',
+      literatureId,
+      error,
+    )
+    readingHistory.value = null
+  }
 }
 
 function resetForm() {
@@ -585,44 +521,11 @@ async function runRagSearch() {
   }
 }
 
-async function runRetrievalCompare() {
-  if (!retrievalForm.query.trim()) {
-    ElMessage.warning('请输入对比检索问题')
-    return
-  }
-
-  retrievalComparing.value = true
-  try {
-    const result = await compareRetrieval({
-      query: retrievalForm.query,
-      categoryId: query.categoryId,
-      limit: retrievalForm.limit,
-    })
-    retrievalCompare.value = result
-    if (result.denseAvailable === false) {
-      ElMessage.warning('向量检索未就绪：请先在管理端重建文献向量')
-    } else {
-      ElMessage.success('混合检索对比完成')
-    }
-  } catch (error) {
-    console.error(
-      'retrieval compare failed, scenario=retrieval-compare-hybrid, query=%s, categoryId=%s, limit=%s',
-      retrievalForm.query,
-      query.categoryId,
-      retrievalForm.limit,
-      error,
-    )
-    // 失败时不保留旧结果，也不构造任何演示命中数据
-    retrievalCompare.value = null
-  } finally {
-    retrievalComparing.value = false
-  }
-}
-
 async function fetchNotes(literatureId: Id) {
   try {
     const result = await listReadingNotes({ literatureId, page: 1, size: 20 })
     notes.value = result.items
+    notesTotal.value = result.total
   } catch (error) {
     console.error(
       'reading notes list failed, scenario=reading-note-list, literatureId=%s',
@@ -630,14 +533,14 @@ async function fetchNotes(literatureId: Id) {
       error,
     )
     notes.value = demoNotes.filter((note) => note.literatureId === literatureId)
+    notesTotal.value = notes.value.length
   }
 }
 
 async function chooseLiterature(item: Literature) {
   selected.value = item
-  indexResult.value = null
-  activeAnswer.value = null
-  summaryResult.value = null
+  abstractExpanded.value = false
+  readingHistory.value = null
   detailLoading.value = true
   try {
     const response = await getLiteratureView(item.id)
@@ -645,7 +548,12 @@ async function chooseLiterature(item: Literature) {
     selected.value = response.literature
     favorited.value = response.favorited
     notes.value = response.recentNotes ?? []
-    hydrateHistory(response.readingHistory)
+    notesTotal.value = notes.value.length
+    readingHistory.value = response.readingHistory ?? null
+    // 旧版详情接口可能不返回阅读记录，仅在字段缺失时补一次请求
+    if (response.readingHistory === undefined) {
+      await loadReadingHistory(item.id)
+    }
     await markLiteratureRead(item.id)
     await fetchNotes(item.id)
   } catch (error) {
@@ -662,41 +570,10 @@ async function chooseLiterature(item: Literature) {
     }
     favorited.value = false
     notes.value = detail.value.recentNotes
-    hydrateHistory(null)
+    notesTotal.value = notes.value.length
+    readingHistory.value = null
   } finally {
     detailLoading.value = false
-    await fetchQaHistory(item.id)
-  }
-}
-
-async function fetchQaHistory(literatureId: Id) {
-  qaHistoryLoading.value = true
-  try {
-    qaRecords.value = await listLiteratureQaRecords({
-      literatureId,
-      page: 1,
-      size: 8,
-    })
-  } catch (error) {
-    console.error(
-      'qa history load failed, scenario=literature-qa-history, literatureId=%s',
-      literatureId,
-      error,
-    )
-    qaRecords.value = [
-      {
-        recordId: '9200000000000000001',
-        literatureId,
-        question: qaForm.question,
-        answer:
-          '演示回答：这篇文献可以从研究问题、检索意图建模、混合召回策略和用户行为反馈四个维度拆解，并把方法部分复用到 ScholarMind 的 RAG 检索链路。',
-        references: demoReferences.filter(
-          (item) => item.literatureId === literatureId,
-        ),
-      },
-    ]
-  } finally {
-    qaHistoryLoading.value = false
   }
 }
 
@@ -713,16 +590,11 @@ function openEdit() {
   editorVisible.value = true
 }
 
-function openNoteCreate(aiGenerated = 0) {
+function openNoteCreate() {
   if (!currentLiterature.value) return
   noteMode.value = 'create'
   resetNoteForm()
   noteForm.literatureId = currentLiterature.value.id
-  noteForm.aiGenerated = aiGenerated
-  if (aiGenerated) {
-    noteForm.title = 'AI 解析笔记'
-    noteForm.content = `围绕《${currentLiterature.value.title}》记录研究问题、核心方法、证据材料和可复用模块。`
-  }
   noteDrawerVisible.value = true
 }
 
@@ -778,181 +650,33 @@ async function submitCurrent() {
 }
 
 async function toggleFavorite() {
-  if (!currentLiterature.value) return
+  if (!currentLiterature.value || favoriteLoading.value) return
   const literatureId = currentLiterature.value.id
+  const nextFavorited = !favorited.value
+  favoriteLoading.value = true
+  favorited.value = nextFavorited
   try {
-    if (favorited.value) {
-      await unfavoriteLiterature(literatureId)
-      favorited.value = false
-      ElMessage.success('已取消收藏')
-    } else {
+    if (nextFavorited) {
       await favoriteLiterature(literatureId)
-      favorited.value = true
       ElMessage.success('已收藏')
+    } else {
+      await unfavoriteLiterature(literatureId)
+      ElMessage.success('已取消收藏')
     }
   } catch (error) {
+    // 请求失败时回滚到操作前的收藏状态，避免界面与后端不一致
+    favorited.value = !nextFavorited
+    ElMessage.error(
+      nextFavorited ? '收藏失败，请稍后重试' : '取消收藏失败，请稍后重试',
+    )
     console.error(
       'favorite toggle failed, scenario=literature-favorite-toggle, literatureId=%s, favorited=%s',
       literatureId,
-      favorited.value,
-      error,
-    )
-  }
-}
-
-async function syncReadingHistory() {
-  if (!currentLiterature.value) return
-  historySaving.value = true
-  try {
-    const history = await saveReadingHistory(currentLiterature.value.id, {
-      lastPage: readingState.lastPage,
-      progress: readingState.progress,
-      readDuration: readingState.readDuration,
-    })
-    detail.value = detail.value
-      ? { ...detail.value, readingHistory: history }
-      : detail.value
-    ElMessage.success('阅读进度已同步')
-  } catch (error) {
-    console.error(
-      'reading history save failed, scenario=reading-history-upsert, literatureId=%s, lastPage=%s, progress=%s, readDuration=%s',
-      currentLiterature.value.id,
-      readingState.lastPage,
-      readingState.progress,
-      readingState.readDuration,
+      nextFavorited,
       error,
     )
   } finally {
-    historySaving.value = false
-  }
-}
-
-async function rebuildCurrentIndex() {
-  if (!currentLiterature.value) return
-  const literatureId = currentLiterature.value.id
-  indexBuilding.value = true
-  try {
-    indexResult.value = await rebuildLiteratureIndex(literatureId)
-    ElMessage.success(`索引已重建，生成 ${indexResult.value.chunkCount} 个分块`)
-  } catch (error) {
-    console.error(
-      'literature index rebuild failed, scenario=literature-index-rebuild, literatureId=%s',
-      literatureId,
-      error,
-    )
-    indexResult.value = {
-      literatureId,
-      chunkCount: 6,
-      parseStatus: 'DEMO_READY',
-    }
-  } finally {
-    indexBuilding.value = false
-  }
-}
-
-async function generateCurrentSummary() {
-  if (!currentLiterature.value) return
-  const literatureId = currentLiterature.value.id
-  summaryLoading.value = true
-  try {
-    const result = await generateLiteratureSummary(literatureId)
-    summaryResult.value = result
-    if (detail.value?.literature) {
-      detail.value = {
-        ...detail.value,
-        literature: {
-          ...detail.value.literature,
-          aiSummary: result.summary,
-        },
-      }
-    }
-    ElMessage.success('AI 摘要已生成')
-  } catch (error) {
-    console.error(
-      'literature summary generate failed, scenario=literature-ai-summary, literatureId=%s',
-      literatureId,
-      error,
-    )
-    summaryResult.value = {
-      literatureId,
-      summary:
-        currentLiterature.value.aiSummary ||
-        '演示摘要：本文围绕学术文献检索中的意图理解与资源推荐展开，可为 ScholarMind 的语义检索、证据引用和个性化推荐模块提供方法参考。',
-      status: 'DEMO_READY',
-    }
-  } finally {
-    summaryLoading.value = false
-  }
-}
-
-async function askCurrentQuestion() {
-  if (!currentLiterature.value) return
-  if (!qaForm.question.trim()) {
-    ElMessage.warning('请输入要追问的问题')
-    return
-  }
-  const literatureId = currentLiterature.value.id
-  qaLoading.value = true
-  try {
-    const result = await askLiteratureQuestion(literatureId, {
-      question: qaForm.question,
-      limit: qaForm.limit,
-    })
-    activeAnswer.value = result
-    qaRecords.value = [
-      result,
-      ...qaRecords.value.filter((item) => item.recordId !== result.recordId),
-    ]
-    ElMessage.success('RAG 问答已生成')
-  } catch (error) {
-    console.error(
-      'literature question failed, scenario=literature-rag-question, literatureId=%s, question=%s, limit=%s',
-      literatureId,
-      qaForm.question,
-      qaForm.limit,
-      error,
-    )
-    const fallbackAnswer: LiteratureQuestionResult = {
-      recordId: String(Date.now()),
-      literatureId,
-      question: qaForm.question,
-      answer:
-        '演示回答：可以先把论文拆成“问题、方法、数据、结论、局限”五类证据，再用 RAG 引用命中的原文片段，回答时显式区分作者结论和系统推断。',
-      references: demoReferences.filter(
-        (item) => item.literatureId === literatureId,
-      ),
-    }
-    activeAnswer.value = fallbackAnswer
-    qaRecords.value = [fallbackAnswer, ...qaRecords.value]
-  } finally {
-    qaLoading.value = false
-  }
-}
-
-async function compareVisibleLiteratures() {
-  if (compareIds.value.length < 2) {
-    ElMessage.warning('至少需要两篇文献才能对比')
-    return
-  }
-  compareLoading.value = true
-  try {
-    compareResult.value = await compareLiteratures({
-      literatureIds: compareIds.value.slice(0, 6),
-    })
-    ElMessage.success('文献对比已生成')
-  } catch (error) {
-    console.error(
-      'literature compare failed, scenario=literature-ai-compare, literatureIds=%s',
-      compareIds.value.join(','),
-      error,
-    )
-    compareResult.value = {
-      literatureIds: compareIds.value,
-      analysis:
-        '演示对比：第一篇偏个性化推荐和用户行为建模，第二篇偏自然语言意图识别。两者可以组合成“意图解析 -> 语义召回 -> 行为排序 -> 阅读反馈”的完整 RAG 文献检索链路。',
-    }
-  } finally {
-    compareLoading.value = false
+    favoriteLoading.value = false
   }
 }
 
@@ -1049,8 +773,8 @@ onMounted(async () => {
         <p class="panel__eyebrow">Stage 4 LLM + RAG Workspace</p>
         <h2>让语义检索、证据引用和论文问答在阅读舱里闭环</h2>
         <p>
-          第四阶段聚焦 LLM 与 RAG：自然语言检索、向量索引、AI
-          摘要、文献问答和多文献对比会围绕当前阅读材料同步运转。
+          自然语言检索、向量召回与在线阅读围绕当前文献闭环：命中证据可追溯，
+          阅读进度与笔记自动沉淀。
         </p>
       </div>
       <div class="hero-orbit" aria-hidden="true">
@@ -1261,58 +985,16 @@ onMounted(async () => {
         aria-label="论文解析阅读器"
       >
         <template v-if="currentLiterature">
-          <div class="reader-toolbar">
+          <div class="reader-toolbar" aria-label="文献操作">
             <el-button
               :icon="favorited ? StarFilled : Star"
               type="primary"
               plain
+              :loading="favoriteLoading"
               @click="toggleFavorite"
             >
               {{ favorited ? '已收藏' : '收藏' }}
             </el-button>
-            <el-button
-              :icon="Reading"
-              plain
-              :loading="historySaving"
-              @click="syncReadingHistory"
-            >
-              同步进度
-            </el-button>
-            <el-button
-              :icon="Cpu"
-              plain
-              :loading="indexBuilding"
-              @click="rebuildCurrentIndex"
-            >
-              重建索引
-            </el-button>
-            <el-button
-              :icon="MagicStick"
-              plain
-              :loading="summaryLoading"
-              @click="generateCurrentSummary"
-            >
-              AI 摘要
-            </el-button>
-            <el-button :icon="Notebook" plain @click="openNoteCreate(0)"
-              >新建笔记</el-button
-            >
-            <el-button :icon="CollectionTag" plain @click="openNoteCreate(1)"
-              >AI 解析笔记</el-button
-            >
-            <el-button :icon="EditPen" plain @click="openEdit"
-              >编辑信息</el-button
-            >
-            <el-button
-              plain
-              :disabled="currentLiterature.visibility !== 'PUBLIC'"
-              @click="submitCurrent"
-            >
-              提交审核
-            </el-button>
-          </div>
-
-          <div class="reader-toolbar" aria-label="独立页面入口">
             <el-button
               :icon="InfoFilled"
               type="primary"
@@ -1323,207 +1005,94 @@ onMounted(async () => {
             <el-button :icon="Reading" @click="openLiteraturePage('read')"
               >在线阅读</el-button
             >
-            <el-button :icon="ChatLineRound" @click="openLiteraturePage('qa')"
-              >智能问答</el-button
-            >
-            <el-button :icon="Collection" plain @click="goShelf"
-              >我的书房</el-button
-            >
+            <template v-if="isOwnLiterature">
+              <el-button :icon="EditPen" plain @click="openEdit"
+                >编辑信息</el-button
+              >
+              <el-button
+                plain
+                :disabled="currentLiterature.visibility !== 'PUBLIC'"
+                @click="submitCurrent"
+              >
+                提交审核
+              </el-button>
+            </template>
           </div>
 
           <article class="reader-paper" v-loading="detailLoading">
             <div class="reader-titlebar">
               <div>
-                <p class="panel__eyebrow">
-                  {{ displayCategoryName(currentLiterature.categoryName) }}
-                </p>
+                <p class="panel__eyebrow">{{ categoryNameText }}</p>
                 <h2>{{ currentLiterature.title }}</h2>
               </div>
               <el-tag :type="favorited ? 'success' : 'info'" effect="light">
                 {{ favorited ? '已收藏' : '未收藏' }}
               </el-tag>
             </div>
-            <div class="reader-meta">
-              <span>{{ currentLiterature.author || '未知作者' }}</span>
-              <span>{{ currentLiterature.source || '未填写来源' }}</span>
-              <span>{{ currentLiterature.publishYear || '年份未知' }}</span>
-              <span>{{ currentLiterature.fileType || '未绑定原文' }}</span>
-            </div>
 
-            <section class="parse-status-grid">
-              <div v-for="item in parseSignals" :key="item.label">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </section>
-
-            <section class="rag-command-panel">
+            <section class="reader-section detail-info" aria-label="文献详情">
               <div class="panel-heading">
                 <div>
-                  <p class="panel__eyebrow">Ask With Evidence</p>
-                  <h3>论文问答</h3>
+                  <p class="panel__eyebrow">Literature Profile</p>
+                  <h3>文献详情</h3>
                 </div>
-                <el-button
-                  :icon="ChatLineRound"
-                  type="primary"
-                  :loading="qaLoading"
-                  @click="askCurrentQuestion"
-                >
-                  生成回答
-                </el-button>
               </div>
-              <el-input
-                v-model="qaForm.question"
-                type="textarea"
-                :rows="3"
-                placeholder="围绕当前论文提出一个具体问题"
-              />
-              <div class="rag-command-panel__footer">
-                <span>引用上限</span>
-                <el-input-number
-                  v-model="qaForm.limit"
-                  :min="1"
-                  :max="8"
-                  controls-position="right"
-                />
-                <el-button
-                  :icon="Refresh"
-                  plain
-                  :loading="qaHistoryLoading"
-                  @click="fetchQaHistory(currentLiterature.id)"
-                >
-                  刷新历史
-                </el-button>
-              </div>
-            </section>
-
-            <section v-if="activeAnswer" class="answer-panel">
-              <div class="answer-panel__bubble">
-                <span>{{ activeAnswer.question }}</span>
-                <p>{{ activeAnswer.answer }}</p>
-              </div>
-              <div class="reference-list" v-if="activeAnswer.references.length">
-                <article
-                  v-for="reference in activeAnswer.references"
-                  :key="reference.id"
-                >
-                  <div>
-                    <strong>#{{ reference.chunkIndex ?? reference.id }}</strong>
-                    <span>{{ Math.round(reference.score * 100) }}%</span>
-                  </div>
-                  <div
-                    v-if="referenceRankBadges(reference).length"
-                    class="retrieval-badge-row"
-                  >
-                    <el-tag
-                      v-for="badge in referenceRankBadges(reference)"
-                      :key="badge.label"
-                      size="small"
-                      effect="plain"
-                      :type="badge.tone"
+              <dl class="detail-info__list">
+                <div class="detail-info__row">
+                  <dt>标题</dt>
+                  <dd>{{ currentLiterature.title || '—' }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>作者</dt>
+                  <dd>{{ currentLiterature.author || '—' }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>年份</dt>
+                  <dd>{{ currentLiterature.publishYear || '—' }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>分类</dt>
+                  <dd>{{ categoryNameText }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>关键词</dt>
+                  <dd>{{ currentLiterature.keywords || '暂无' }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>来源</dt>
+                  <dd>{{ currentLiterature.source || '—' }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>摘要</dt>
+                  <dd>
+                    <p
+                      v-if="abstractText"
+                      class="detail-info__abstract"
+                      :class="{ 'is-expanded': abstractExpanded }"
                     >
-                      {{ badge.label }}
-                    </el-tag>
-                  </div>
-                  <p>{{ reference.content }}</p>
-                </article>
-              </div>
-            </section>
-
-            <section class="reading-progress-panel">
-              <div class="panel-heading">
-                <div>
-                  <p class="panel__eyebrow">Reading History</p>
-                  <h3>阅读进度</h3>
+                      {{ abstractText }}
+                    </p>
+                    <span v-else class="detail-info__empty">暂无摘要</span>
+                    <el-button
+                      v-if="abstractLong"
+                      text
+                      type="primary"
+                      class="detail-info__toggle"
+                      @click="abstractExpanded = !abstractExpanded"
+                    >
+                      {{ abstractExpanded ? '收起' : '展开全文' }}
+                    </el-button>
+                  </dd>
                 </div>
-                <span>{{ readingState.progress }}%</span>
-              </div>
-              <el-slider v-model="readingState.progress" :min="0" :max="100" />
-              <div class="history-inputs">
-                <el-input-number
-                  v-model="readingState.lastPage"
-                  :min="0"
-                  controls-position="right"
-                />
-                <span>最后页码</span>
-                <el-input-number
-                  v-model="readingState.readDuration"
-                  :min="0"
-                  controls-position="right"
-                />
-                <span>阅读分钟</span>
-              </div>
-            </section>
-
-            <section class="reader-section">
-              <h3>AI 摘要</h3>
-              <p>
-                {{
-                  summaryResult?.summary ||
-                  currentLiterature.aiSummary ||
-                  currentLiterature.abstractText ||
-                  '暂无 AI 摘要。可先阅读摘要并创建 AI 解析笔记，后续接入解析任务后可自动沉淀研究问题、方法和结论。'
-                }}
-              </p>
-            </section>
-
-            <section class="reader-section">
-              <h3>解析摘要</h3>
-              <p>{{ currentLiterature.abstractText || '暂无摘要。' }}</p>
-            </section>
-
-            <section class="keyword-ribbon" v-if="keywordTokens.length">
-              <span v-for="token in keywordTokens" :key="token">{{
-                token
-              }}</span>
-            </section>
-
-            <section class="reading-grid">
-              <div v-for="item in outlineItems" :key="item.title">
-                <h3>{{ item.title }}</h3>
-                <p>{{ item.content }}</p>
-              </div>
-            </section>
-
-            <section class="qa-history-panel" v-if="qaRecords.length">
-              <div class="panel-heading">
-                <div>
-                  <p class="panel__eyebrow">QA Memory</p>
-                  <h3>问答历史</h3>
+                <div class="detail-info__row">
+                  <dt>阅读进度</dt>
+                  <dd>{{ readingProgressText }}</dd>
                 </div>
-                <el-button
-                  :icon="DataAnalysis"
-                  plain
-                  :loading="compareLoading"
-                  @click="compareVisibleLiteratures"
-                >
-                  对比当前结果
-                </el-button>
-              </div>
-              <div class="qa-record-list">
-                <button
-                  v-for="record in qaRecords"
-                  :key="record.recordId ?? record.question"
-                  type="button"
-                  @click="activeAnswer = record"
-                >
-                  <span>{{ record.question }}</span>
-                  <small>{{ record.references.length }} 条引用</small>
-                </button>
-              </div>
-            </section>
-
-            <section v-if="compareResult" class="compare-panel">
-              <div>
-                <p class="panel__eyebrow">Literature Compare</p>
-                <h3>多文献对比</h3>
-              </div>
-              <p>{{ compareResult.analysis }}</p>
-              <div class="keyword-ribbon">
-                <span v-for="id in compareResult.literatureIds" :key="id"
-                  >#{{ id }}</span
-                >
-              </div>
+                <div class="detail-info__row">
+                  <dt>阅读笔记</dt>
+                  <dd>{{ noteTotalText }}</dd>
+                </div>
+              </dl>
             </section>
 
             <section class="note-board">
@@ -1532,7 +1101,7 @@ onMounted(async () => {
                   <p class="panel__eyebrow">Reading Notes</p>
                   <h3>阅读笔记</h3>
                 </div>
-                <el-button :icon="Notebook" plain @click="openNoteCreate(0)"
+                <el-button :icon="Notebook" plain @click="openNoteCreate()"
                   >添加</el-button
                 >
               </div>
@@ -1560,200 +1129,6 @@ onMounted(async () => {
         <el-empty v-else description="检索后选择一篇文献开始阅读" />
       </section>
     </div>
-
-    <section class="glass-panel retrieval-compare" aria-label="混合检索对比">
-      <div class="panel-heading">
-        <div>
-          <p class="panel__eyebrow">Hybrid Retrieval Ablation</p>
-          <h3>混合检索对比</h3>
-        </div>
-        <el-tag
-          v-if="retrievalCompare"
-          size="small"
-          effect="plain"
-          :type="denseAvailable ? 'success' : 'warning'"
-        >
-          {{ denseAvailable ? '向量检索可用' : '向量检索未就绪' }}
-        </el-tag>
-      </div>
-
-      <div class="retrieval-compare__form">
-        <el-input
-          v-model="retrievalForm.query"
-          :prefix-icon="Search"
-          placeholder="例如：混合检索 如何避免纯向量召回的问题"
-          clearable
-          @keyup.enter="runRetrievalCompare"
-        />
-        <el-input-number
-          v-model="retrievalForm.limit"
-          :min="1"
-          :max="10"
-          controls-position="right"
-        />
-        <el-button
-          :icon="DataAnalysis"
-          type="primary"
-          :loading="retrievalComparing"
-          @click="runRetrievalCompare"
-        >
-          执行对比
-        </el-button>
-      </div>
-      <p class="retrieval-compare__hint">
-        同一个问题分别走 BM25 关键词召回、Milvus 向量召回与 RRF 融合排序，用来观察三种策略在同一批分块上的名次差异。
-      </p>
-
-      <el-alert
-        v-if="retrievalCompare && !denseAvailable"
-        type="warning"
-        :closable="false"
-        show-icon
-        title="向量检索未就绪：请先在管理端重建文献向量"
-        description="当前仅关键词召回有效，向量列与融合列中的向量名次为空，页面仍会展示后端返回的内容。"
-      />
-
-      <div v-if="retrievalCompare" class="retrieval-columns">
-        <article class="retrieval-column">
-          <header class="retrieval-column__head">
-            <div>
-              <p class="panel__eyebrow">BM25 Sparse</p>
-              <h4>① 关键词召回（BM25 稀疏）</h4>
-            </div>
-            <span>{{ sparseHits.length }} 条</span>
-          </header>
-          <div v-if="sparseHits.length" class="retrieval-hit-list">
-            <div
-              v-for="hit in sparseHits"
-              :key="`sparse-${hit.chunkId}`"
-              class="retrieval-hit"
-            >
-              <div class="retrieval-hit__head">
-                <strong>{{ hit.literatureTitle || '未命名文献' }}</strong>
-                <el-tag
-                  size="small"
-                  effect="plain"
-                  :type="hitSparseBadge(hit).tone"
-                >
-                  {{ hitSparseBadge(hit).label }}
-                </el-tag>
-              </div>
-              <div class="retrieval-hit__meta">
-                <span>#{{ hit.chunkIndex ?? '—' }} 分块</span>
-                <span>BM25 得分 {{ formatScore(hit.score) }}</span>
-              </div>
-              <p class="retrieval-hit__excerpt">
-                {{ hitExcerpt(hit.content) }}
-              </p>
-            </div>
-          </div>
-          <el-empty
-            v-else
-            :image-size="72"
-            description="关键词召回无命中，可换用更短的术语重试"
-          />
-        </article>
-
-        <article class="retrieval-column">
-          <header class="retrieval-column__head">
-            <div>
-              <p class="panel__eyebrow">Milvus Dense</p>
-              <h4>② 向量召回（Milvus 稠密）</h4>
-            </div>
-            <span>{{ denseHits.length }} 条</span>
-          </header>
-          <div v-if="denseHits.length" class="retrieval-hit-list">
-            <div
-              v-for="hit in denseHits"
-              :key="`dense-${hit.chunkId}`"
-              class="retrieval-hit"
-            >
-              <div class="retrieval-hit__head">
-                <strong>{{ hit.literatureTitle || '未命名文献' }}</strong>
-                <el-tag
-                  size="small"
-                  effect="plain"
-                  :type="hitDenseBadge(hit).tone"
-                >
-                  {{ hitDenseBadge(hit).label }}
-                </el-tag>
-              </div>
-              <div class="retrieval-hit__meta">
-                <span>#{{ hit.chunkIndex ?? '—' }} 分块</span>
-                <span>相似度 {{ formatScore(hit.score) }}</span>
-              </div>
-              <p class="retrieval-hit__excerpt">
-                {{ hitExcerpt(hit.content) }}
-              </p>
-            </div>
-          </div>
-          <el-empty
-            v-else
-            :image-size="72"
-            :description="
-              denseAvailable
-                ? '向量召回无命中'
-                : '向量检索未就绪，未返回稠密召回结果'
-            "
-          />
-        </article>
-
-        <article class="retrieval-column retrieval-column--fusion">
-          <header class="retrieval-column__head">
-            <div>
-              <p class="panel__eyebrow">RRF Fusion</p>
-              <h4>③ RRF 融合（最终排序）</h4>
-            </div>
-            <span>{{ hybridHits.length }} 条</span>
-          </header>
-          <div v-if="hybridHits.length" class="retrieval-hit-list">
-            <div
-              v-for="hit in hybridHits"
-              :key="`hybrid-${hit.chunkId}`"
-              class="retrieval-hit"
-            >
-              <div class="retrieval-hit__head">
-                <strong>{{ hit.literatureTitle || '未命名文献' }}</strong>
-                <el-tag size="small" effect="plain">{{
-                  rankText('融合', hit.rank)
-                }}</el-tag>
-              </div>
-              <div class="retrieval-hit__meta">
-                <span>#{{ hit.chunkIndex ?? '—' }} 分块</span>
-                <span>融合得分 {{ formatScore(hit.score) }}</span>
-              </div>
-              <div class="retrieval-hit__ranks">
-                <el-tag
-                  v-for="badge in hitFusionBadges(hit)"
-                  :key="badge.label"
-                  size="small"
-                  effect="plain"
-                  :type="badge.tone"
-                >
-                  {{ badge.label }}
-                </el-tag>
-                <span v-if="hitRrfText(hit)" class="retrieval-hit__rrf">{{
-                  hitRrfText(hit)
-                }}</span>
-              </div>
-              <p class="retrieval-hit__excerpt">
-                {{ hitExcerpt(hit.content) }}
-              </p>
-            </div>
-          </div>
-          <el-empty
-            v-else
-            :image-size="72"
-            description="融合结果为空，可先确认关键词与向量两路是否有召回"
-          />
-        </article>
-      </div>
-
-      <el-empty
-        v-else
-        description="输入问题后点击「执行对比」，查看关键词、向量与 RRF 融合的差异"
-      />
-    </section>
 
     <el-drawer
       v-model="editorVisible"
@@ -1865,3 +1240,80 @@ onMounted(async () => {
     </el-drawer>
   </section>
 </template>
+
+<style scoped>
+/* 文献详情信息面板：沿用全局配色 token，窄屏下退化为上下两行 */
+.detail-info__list {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+
+.detail-info__row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(105, 132, 161, 0.16);
+}
+
+.detail-info__row dt {
+  margin: 0;
+  color: var(--color-subtle);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.detail-info__row dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.detail-info__abstract {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.detail-info__abstract.is-expanded {
+  display: block;
+  overflow: visible;
+}
+
+.detail-info__empty {
+  color: var(--color-subtle);
+}
+
+.detail-info__toggle.el-button {
+  height: auto;
+  min-height: 28px;
+  margin-top: 2px;
+  padding: 0;
+  font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  .detail-info__row {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px;
+    padding: 9px 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .detail-info__row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+</style>
