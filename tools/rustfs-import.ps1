@@ -77,6 +77,17 @@ if ($DryRun) {
     return
 }
 
+if (-not (Test-S3Endpoint -Endpoint $Endpoint)) {
+    throw @"
+无法连接 RustFS 端点：$Endpoint
+  可能原因：RustFS 未启动 / 端口不对 / 容器未映射到该端口。
+  排查：用 Docker 的话先 `docker ps` 看容器的端口映射（常见是容器 9000 映射到宿主 9990），
+        再用 `curl.exe -s -o NUL -w "%{http_code}" $Endpoint/<bucket>` 验证（连接被拒=没起）。
+  注意：端点不可达时 mc 会把 `dst/xxx` 当成本地目录并"成功"建目录，最后得到 0 个对象与
+        一串 filesystem 相关报错，请先修好端点再重跑本脚本。
+"@
+}
+
 $usedMode = $Mode
 $mc = $null
 if ($Mode -in 'auto', 'mc') {
@@ -89,6 +100,9 @@ if ($Mode -in 'auto', 'mc') {
 if ($usedMode -eq 'mc') {
     Write-Host ("使用 mc 导入（{0}）" -f $mc) -ForegroundColor Cyan
     & $mc alias set sm-dst $Endpoint $AccessKey $SecretKey 2>&1 | Select-Object -Last 1 | ForEach-Object { "  $_" }
+    if ($LASTEXITCODE -ne 0) {
+        throw "mc 别名配置失败（HTTP 探测未通过）。请确认 RustFS 已在 $Endpoint 运行；若继续执行，mc 会把 `"sm-dst/...`" 当成本地路径而静默写错位置。"
+    }
     & $mc mb --ignore-existing "sm-dst/$Bucket" 2>&1 | Select-Object -Last 1 | ForEach-Object { "  $_" }
     & $mc mirror --preserve --overwrite $s3Dir "sm-dst/$Bucket" 2>&1 | Select-Object -Last 3 | ForEach-Object { "  $_" }
     if ((Test-Path $policyFile) -and -not $SkipPolicy) {

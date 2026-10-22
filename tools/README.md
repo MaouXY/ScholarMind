@@ -90,6 +90,12 @@ pwsh -NoProfile -File .\milvus-import.ps1 -MilvusUrl http://127.0.0.1:19530 `
 6. **目标机地址变化**：存储端口/主机变了要批量替换历史文件 URL（脚本会打印 `UPDATE file_metadata ... REPLACE(...)`）。
 7. **零字节 body 的签名细节**：PowerShell 会把空数组绑成 `$null`，`s3-common.ps1` 对零字节请求改为不带 Content
    （`Content-Length: 0`），否则建桶等操作会抛 `Value cannot be null (Parameter 'content')`。
+8. **端点不可达时 mc 会"假装成功"**：`mc alias set` 失败后，`dst/xxx` 会被当成本地路径——`mb dst/x` 会在当前目录建文件夹
+   并提示成功、`mirror` 报 `Preserve ... object storage to object storage transfer only`、`anonymous set-json`
+   报 `not supported for filesystem`、`ls` 显示 0 对象。**此时 RustFS 里什么都没写进去**。
+   新版本已在 `rustfs-export/import/migrate` 开头做 TCP 连通性预检，并对 `mc alias set` 的退出码做校验，
+   直接给出「RustFS 未启动或端口不对」的明确报错；如遇历史版本，请先 `docker ps` 确认端口映射，
+   删除误建的本地 `dst\` 目录后重试。
 
 ## 六、与其他脚本的关系
 

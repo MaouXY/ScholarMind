@@ -30,9 +30,17 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 's3-common.ps1')
+
+# ---------- ⓪ 端点连通性预检（别名失败会被 mc 当成本地路径，必须先拦住） ----------
+foreach ($pair in @(@{ name = '源端'; url = $SourceEndpoint }, @{ name = '目标端'; url = $TargetEndpoint })) {
+    if (-not (Test-S3Endpoint -Endpoint $pair.url)) {
+        throw ("无法连接{0} RustFS：{1}（RustFS 未启动或端口不对）。先用 `docker ps` 确认端口映射，" -f $pair.name, $pair.url) +
+              '修好后再执行，否则 mc 会把别名路径当成本地目录。'
+    }
+}
 
 # ---------- ① mc 可执行文件（优先复用本机/其他项目里已下载的副本，取不到再尝试下载） ----------
-. (Join-Path $PSScriptRoot 's3-common.ps1')
 $McPath = Resolve-McPath -Preferred $McPath
 if (-not $McPath) {
     throw '未找到可用的 mc.exe。受限网络下建议改用零依赖模式：tools/rustfs-export.ps1 + tools/rustfs-import.ps1 -Mode sigv4'

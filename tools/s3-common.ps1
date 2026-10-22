@@ -297,6 +297,25 @@ function New-S3Bucket {
     return $response.StatusCode
 }
 
+function Test-S3Endpoint {
+    <#
+      .SYNOPSIS 预检 RustFS/S3 端点是否可连接（TCP 层），用于在真正写数据前给出明确报错。
+      .DESCRIPTION 若端点不可达，mc 会把 `dst/xxx` 当成本地目录并"成功"建目录，
+                   导致 0 对象、策略设置失败等一连串误导性报错，因此必须先检查连通性。
+    #>
+    param([Parameter(Mandatory = $true)][string]$Endpoint)
+    try {
+        $uri = [System.Uri]$Endpoint
+        $port = if ($uri.Port -gt 0) { $uri.Port } else { 80 }
+        $client = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $task = $client.ConnectAsync($uri.Host, $port)
+            if (-not $task.Wait([TimeSpan]::FromSeconds(5))) { return $false }
+            return $client.Connected
+        } finally { $client.Dispose() }
+    } catch { return $false }
+}
+
 function Resolve-McPath {
     <#
       .SYNOPSIS 找一个可用的 mc.exe：优先复用本机/其他项目里已经下载好的副本，都找不到再尝试下载。

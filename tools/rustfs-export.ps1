@@ -33,6 +33,14 @@ $ErrorActionPreference = 'Stop'
 $s3Dir = Join-Path $OutDir "s3\$Bucket"
 New-Item -ItemType Directory -Force -Path $s3Dir | Out-Null
 
+if (-not (Test-S3Endpoint -Endpoint $Endpoint)) {
+    throw @"
+无法连接 RustFS 端点：$Endpoint
+  可能原因：RustFS 未启动 / 端口不对 / 容器未映射到该端口。
+  排查：`docker ps` 看端口映射；`curl.exe -s -o NUL -w "%{http_code}" $Endpoint/<bucket>` 验证（连接被拒=没起）。
+"@
+}
+
 $usedMode = $Mode
 $mc = $null
 if ($Mode -in 'auto', 'mc') {

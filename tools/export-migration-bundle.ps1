@@ -315,6 +315,7 @@ pwsh -NoProfile -File .\scripts\preflight-check.ps1   # 一键体检（详见 do
 | 现象 | 原因/处理 |
 | --- | --- |
 | ``mc`` 报证书/连接错误 | endpoint 必须用 ``http://``（不是 https），9990 是 RustFS 的 S3 端口（控制台是 9991） |
+| ``mc alias set`` 报 ``connectex: No connection could be made ... actively refused`` | **目标机 RustFS 没在 endpoint 上监听**（未启动或端口映射不同）。先 ``docker ps`` 看端口映射并启动 RustFS，再重配别名。⚠️ 别名失败的严重后果：之后 ``mb dst/xxx`` 会在**当前目录建本地文件夹**并提示成功、``mirror`` 报 ``Preserve ... object storage to object storage transfer only``、``anonymous set-json`` 报 ``not supported for filesystem``、``ls`` 显示 0 对象——此时 RustFS 里其实什么都没进去，请删掉误建的本地 ``dst\`` 目录后重来 |
 | 文件 403 | 桶策略没应用 → 重跑 ``anonymous set-json`` |
 | 文件 404 | 对象没灌进去（``mc ls --recursive`` 看数量）或桶名/base-path 与配置不一致 |
 | 检索没有向量列结果 | Milvus 未导入或未启动；管理端执行一次 ``POST /api/v1/admin/rag/literature-vectors/rebuild`` 可重建 |
