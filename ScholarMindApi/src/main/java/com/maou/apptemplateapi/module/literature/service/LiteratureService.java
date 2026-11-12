@@ -15,10 +15,12 @@ import com.maou.apptemplateapi.module.literature.dto.LiteratureResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureReviewRequest;
 import com.maou.apptemplateapi.module.literature.entity.Literature;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureCategory;
+import com.maou.apptemplateapi.module.literature.event.LiteratureIndexRequestedEvent;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureCategoryMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -47,6 +49,11 @@ public class LiteratureService {
     private final FileMetadataMapper fileMetadataMapper;
     private final LiteratureCategoryService categoryService;
     private final LiteraturePurgeService literaturePurgeService;
+    /**
+     * 索引重建走事件：{@code LiteratureIndexService} 依赖本类做可读性校验，
+     * 直接反向注入会形成构造器循环依赖。
+     */
+    private final ApplicationEventPublisher eventPublisher;
 
     public PageResult<LiteratureResponse> list(long page, long size, String keyword, Long categoryId, String status, String visibility) {
         CurrentUser currentUser = CurrentUserProvider.require();
@@ -114,6 +121,11 @@ public class LiteratureService {
         bindFileIfNecessary(literature, request.fileId(), currentUser, "literature-create");
         log.info("literature created, scenario=literature-create, literatureId={}, uploaderId={}, visibility={}, status={}, fileId={}",
                 literature.getId(), currentUser.getId(), literature.getVisibility(), literature.getStatus(), literature.getFileId());
+        // P3-1：带原文的上传直接建索引，用户不必再手动点「重建索引」；事件在事务提交后才执行
+        if (literature.getFileId() != null) {
+            eventPublisher.publishEvent(new LiteratureIndexRequestedEvent(
+                    literature.getId(), currentUser.getId(), LiteratureIndexRequestedEvent.TRIGGER_UPLOAD));
+        }
         return detail(literature.getId());
     }
 
@@ -135,6 +147,11 @@ public class LiteratureService {
         }
         log.info("literature updated, scenario=literature-update, literatureId={}, operatorId={}, visibility={}, status={}, fileId={}",
                 id, currentUser.getId(), literature.getVisibility(), literature.getStatus(), literature.getFileId());
+        // P3-1：已发布文献换了原文时要重建索引，否则检索仍在用旧正文
+        if (!Objects.equals(oldFileId, request.fileId()) && STATUS_PUBLISHED.equals(literature.getStatus())) {
+            eventPublisher.publishEvent(new LiteratureIndexRequestedEvent(
+                    id, currentUser.getId(), LiteratureIndexRequestedEvent.TRIGGER_UPLOAD));
+        }
         return detail(id);
     }
 
@@ -203,6 +220,9 @@ public class LiteratureService {
         literature.setRejectReason(null);
         literatureMapper.updateById(literature);
         log.info("literature approved, scenario=admin-approve-literature, literatureId={}, adminId={}", id, admin.getId());
+        // P3-1：审核通过后自动重建索引，管理员不必再手动点「重建索引」；事件在事务提交后才执行
+        eventPublisher.publishEvent(new LiteratureIndexRequestedEvent(
+                id, admin.getId(), LiteratureIndexRequestedEvent.TRIGGER_PUBLISH));
         return toResponse(literatureMapper.selectById(id), categoryName(literature.getCategoryId()));
     }
 

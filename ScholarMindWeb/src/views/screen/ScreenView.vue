@@ -210,7 +210,6 @@ onMounted(fetchDashboard)
         </div>
         <ul class="signal-list">
           <li><strong>检索服务</strong><span>{{ overview.literatureTotal }} 篇文献可参与检索</span></li>
-          <li><strong>RAG 资产</strong><span>{{ overview.ragDocumentTotal }} 个知识库文档维护中</span></li>
           <li><strong>审核流转</strong><span>{{ overview.pendingReviewTotal }} 篇公开文献等待处理</span></li>
           <li><strong>阅读质量</strong><span>{{ overview.favoriteTotal }} 次收藏，{{ overview.readingNoteTotal }} 条笔记</span></li>
         </ul>

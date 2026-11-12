@@ -47,6 +47,8 @@ public class LiteratureIndexService {
     /** 正文抽取的最小可用长度：低于该长度视为「没解析出正文」，直接走题录兜底 */
     private static final int MIN_FILE_TEXT_CHARS = 200;
     private static final String REBUILD_SCENARIO = "literature-index-rebuild";
+    /** 审核通过后自动重建（P3-1）：与手动重建区分，便于日志与排查 */
+    private static final String AUTO_REBUILD_SCENARIO = "literature-index-auto-rebuild";
     private static final String DEFAULT_FALLBACK_REASON = "未解析到正文（类型不支持/解析为空/S3 读取失败），已使用题录与摘要兜底";
     private static final int MAX_PARSE_ERROR_CHARS = 500;
 
@@ -64,11 +66,36 @@ public class LiteratureIndexService {
     public LiteratureIndexResponse rebuild(Long literatureId) {
         CurrentUser currentUser = CurrentUserProvider.require();
         Literature literature = literatureService.requireReadableLiterature(literatureId, currentUser, "literature-index-rebuild");
+        return doRebuild(literature, currentUser.getId(), REBUILD_SCENARIO);
+    }
+
+    /**
+     * 自动重建索引（P3-1，客户需求「重建索引改为自动：上传/审核通过后自动重建」）。
+     *
+     * <p>与手动重建的区别只有两点：不依赖 SecurityContext（operatorId 由上传者或审核管理员传入），
+     * 以及失败直接抛给调用方——由 {@code LiteraturePublishIndexListener} 在事务外兜住并降级为
+     * parse_status=FAILED + parse_error，阅读页的「空分块自动重建一次」与手动重建可以兜底。
+     *
+     * <p>故意不在本方法内 catch：本方法是事务边界，吞掉异常会让「已删除旧分块、只插入一半新分块」
+     * 的半成品状态被提交。让异常穿出事务、由调用方在事务外层兜，才保证失败即整体回滚。
+     */
+    @Transactional
+    public LiteratureIndexResponse rebuildAutomatically(Long literatureId, Long operatorId) {
+        Literature literature = literatureService.requireLiterature(literatureId, AUTO_REBUILD_SCENARIO);
+        LiteratureIndexResponse response = doRebuild(literature, operatorId, AUTO_REBUILD_SCENARIO);
+        log.info("literature index auto rebuild done, scenario={}, literatureId={}, operatorId={}, chunkCount={}, parseStatus={}",
+                AUTO_REBUILD_SCENARIO, literatureId, operatorId, response.chunkCount(), response.parseStatus());
+        return response;
+    }
+
+    /** 重建主体：手动重建与审核后自动重建共用，仅 scenario 与操作者来源不同。 */
+    private LiteratureIndexResponse doRebuild(Literature literature, Long operatorId, String scenario) {
+        Long literatureId = literature.getId();
         try {
-            IndexContent content = resolveIndexContent(literature);
+            IndexContent content = resolveIndexContent(literature, scenario);
             if (!StringUtils.hasText(content.text())) {
-                log.warn("literature index rejected, scenario=literature-index-rebuild, reason=empty-content, literatureId={}, userId={}",
-                        literatureId, currentUser.getId());
+                log.warn("literature index rejected, scenario={}, reason=empty-content, literatureId={}, userId={}",
+                        scenario, literatureId, operatorId);
                 throw new BusinessException(ErrorCode.LITERATURE_STATUS_INVALID, "literature content is empty");
             }
             int deletedChunks = chunkMapper.physicalDeleteByLiteratureId(literatureId);
@@ -87,7 +114,7 @@ public class LiteratureIndexService {
                 chunks.add(chunk);
             }
             // 写入 Milvus 向量库：成功标记 MILVUS，失败保留 DB_ONLY（检索会自动退化为纯稀疏 BM25）
-            boolean vectorIndexed = milvusLiteratureVectorService.rebuildLiterature(literatureId, chunks, "literature-index-rebuild");
+            boolean vectorIndexed = milvusLiteratureVectorService.rebuildLiterature(literatureId, chunks, scenario);
             String vectorStatus = vectorIndexed ? VECTOR_STATUS_MILVUS : VECTOR_STATUS_DB_ONLY;
             for (LiteratureChunk chunk : chunks) {
                 chunk.setVectorStoreStatus(vectorStatus);
@@ -97,8 +124,8 @@ public class LiteratureIndexService {
             // 索引成功（INDEXED 语义不变）：走正文时清空 parse_error，走题录兜底时保留兜底原因便于排查
             literature.setParseError(content.parseError());
             literatureMapper.updateById(literature);
-            log.info("literature index rebuilt, scenario=literature-index-rebuild, literatureId={}, userId={}, deletedChunkCount={}, insertedChunkCount={}, embeddingProvider={}, vectorStoreStatus={}",
-                    literatureId, currentUser.getId(), deletedChunks, texts.size(), ragEmbeddingService.provider(), vectorStatus);
+            log.info("literature index rebuilt, scenario={}, literatureId={}, userId={}, deletedChunkCount={}, insertedChunkCount={}, embeddingProvider={}, vectorStoreStatus={}",
+                    scenario, literatureId, operatorId, deletedChunks, texts.size(), ragEmbeddingService.provider(), vectorStatus);
             return new LiteratureIndexResponse(literatureId, texts.size(), literature.getParseStatus());
         } catch (BusinessException exception) {
             throw exception;
@@ -106,8 +133,8 @@ public class LiteratureIndexService {
             literature.setParseStatus(STATUS_FAILED);
             literature.setParseError(exception.getMessage());
             literatureMapper.updateById(literature);
-            log.error("literature index failed, scenario=literature-index-rebuild, literatureId={}, userId={}",
-                    literatureId, currentUser.getId(), exception);
+            log.error("literature index failed, scenario={}, literatureId={}, userId={}",
+                    scenario, literatureId, operatorId, exception);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "literature index failed");
         }
     }
@@ -167,35 +194,35 @@ public class LiteratureIndexService {
      * <p>整条链路（查 file_metadata → S3 取对象 → PDF/Word 解析）都用 try/catch 兜住，
      * 任何远程 I/O 或解析异常只降级为兜底语料，绝不让重建事务整体失败。
      */
-    private IndexContent resolveIndexContent(Literature literature) {
+    private IndexContent resolveIndexContent(Literature literature, String scenario) {
         LiteratureTextExtractor.ExtractionResult extraction = null;
         if (literature.getFileId() != null) {
-            extraction = extractFileText(literature);
+            extraction = extractFileText(literature, scenario);
             if (StringUtils.hasText(extraction.text()) && extraction.text().length() >= MIN_FILE_TEXT_CHARS) {
-                log.info("literature index content resolved, scenario=literature-index-rebuild, literatureId={}, source={}, textChars={}, fallbackReason={}",
-                        literature.getId(), INDEX_SOURCE_FILE_TEXT, extraction.text().length(), null);
+                log.info("literature index content resolved, scenario={}, literatureId={}, source={}, textChars={}, fallbackReason={}",
+                        scenario, literature.getId(), INDEX_SOURCE_FILE_TEXT, extraction.text().length(), null);
                 return new IndexContent(extraction.text(), INDEX_SOURCE_FILE_TEXT, null);
             }
         }
         String fallbackReason = buildFallbackReason(extraction);
         String metadataContent = buildIndexContent(literature);
-        log.info("literature index content resolved, scenario=literature-index-rebuild, literatureId={}, source={}, textChars={}, fallbackReason={}",
-                literature.getId(), INDEX_SOURCE_METADATA_FALLBACK, metadataContent.length(), fallbackReason);
+        log.info("literature index content resolved, scenario={}, literatureId={}, source={}, textChars={}, fallbackReason={}",
+                scenario, literature.getId(), INDEX_SOURCE_METADATA_FALLBACK, metadataContent.length(), fallbackReason);
         return new IndexContent(metadataContent, INDEX_SOURCE_METADATA_FALLBACK, fallbackReason);
     }
 
     /**
      * 从 RustFS 取回绑定文件字节并抽取正文；任何失败都转化为「解析失败但类型支持」的结果，由调用方决定兜底。
      */
-    private LiteratureTextExtractor.ExtractionResult extractFileText(Literature literature) {
+    private LiteratureTextExtractor.ExtractionResult extractFileText(Literature literature, String scenario) {
         Long fileId = literature.getFileId();
         try {
             FileMetadata metadata = fileMetadataMapper.selectOne(new LambdaQueryWrapper<FileMetadata>()
                     .eq(FileMetadata::getId, fileId)
                     .eq(FileMetadata::getDeleted, 0));
             if (metadata == null || !StringUtils.hasText(metadata.getObjectKey())) {
-                log.warn("literature file text skipped, scenario=literature-index-rebuild, reason=file-metadata-missing, literatureId={}, fileId={}",
-                        literature.getId(), fileId);
+                log.warn("literature file text skipped, scenario={}, reason=file-metadata-missing, literatureId={}, fileId={}",
+                        scenario, literature.getId(), fileId);
                 return LiteratureTextExtractor.ExtractionResult.failure("绑定文件元数据缺失");
             }
             String bucket = StringUtils.hasText(metadata.getBucketName()) ? metadata.getBucketName() : null;
@@ -208,15 +235,15 @@ public class LiteratureIndexService {
                 objectBytes = rustfsS3Client.getObjectAsBytes(request);
             } catch (RuntimeException exception) {
                 // 远程 I/O 失败不抛给事务：仅记录并降级为兜底语料
-                log.error("literature file text fetch failed, scenario=literature-index-rebuild, literatureId={}, fileId={}, bucket={}, objectKey={}",
-                        literature.getId(), fileId, bucket, metadata.getObjectKey(), exception);
+                log.error("literature file text fetch failed, scenario={}, literatureId={}, fileId={}, bucket={}, objectKey={}",
+                        scenario, literature.getId(), fileId, bucket, metadata.getObjectKey(), exception);
                 return LiteratureTextExtractor.ExtractionResult.failure("对象存储读取失败");
             }
             return literatureTextExtractor.extract(metadata.getContentType(), metadata.getOriginalName(),
-                    objectBytes.asByteArray(), REBUILD_SCENARIO);
+                    objectBytes.asByteArray(), scenario);
         } catch (RuntimeException exception) {
-            log.error("literature file text extract aborted, scenario=literature-index-rebuild, literatureId={}, fileId={}, fileType={}",
-                    literature.getId(), fileId, literature.getFileType(), exception);
+            log.error("literature file text extract aborted, scenario={}, literatureId={}, fileId={}, fileType={}",
+                    scenario, literature.getId(), fileId, literature.getFileType(), exception);
             return LiteratureTextExtractor.ExtractionResult.failure("正文抽取异常");
         }
     }

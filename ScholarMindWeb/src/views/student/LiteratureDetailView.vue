@@ -92,6 +92,12 @@ const parseStatus = computed(() =>
   literature.value?.fileId ? '原文已绑定' : '原文未绑定',
 )
 
+/** 未绑定原文时下载按钮置灰，避免用户点了才收到 14107 报错 */
+const hasOriginalFile = computed(() => Boolean(literature.value?.fileId))
+const downloadDisabledReason = computed(() =>
+  hasOriginalFile.value ? '' : '该文献未绑定原文文件，可联系上传者补充附件',
+)
+
 const abstractParagraphs = computed(() =>
   (literature.value?.abstractText ?? '')
     .split(/\n+/)
@@ -575,15 +581,24 @@ onMounted(async () => {
           <el-button :icon="Document" type="primary" @click="openReader"
             >在线阅读</el-button
           >
-          <el-button
-            :icon="Download"
-            type="primary"
-            plain
-            :loading="downloadLoading"
-            @click="downloadOriginal"
+          <el-tooltip
+            :content="downloadDisabledReason"
+            :disabled="hasOriginalFile"
+            placement="top"
           >
-            下载原文
-          </el-button>
+            <span class="detail-action-wrap">
+              <el-button
+                :icon="Download"
+                type="primary"
+                plain
+                :loading="downloadLoading"
+                :disabled="!hasOriginalFile"
+                @click="downloadOriginal"
+              >
+                下载原文
+              </el-button>
+            </span>
+          </el-tooltip>
           <el-button
             :icon="favorited ? StarFilled : Star"
             plain
@@ -896,3 +911,10 @@ onMounted(async () => {
     </template>
   </section>
 </template>
+
+<style scoped>
+/* 禁用态按钮不派发鼠标事件，用一层 span 承接 tooltip 的 hover */
+.detail-action-wrap {
+  display: inline-flex;
+}
+</style>
