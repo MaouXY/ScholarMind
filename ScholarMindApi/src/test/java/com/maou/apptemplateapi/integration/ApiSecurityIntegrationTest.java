@@ -172,7 +172,9 @@ class ApiSecurityIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"it_api_reg_teacher\",\"password\":\"123456\",\"nickname\":\"注册教师\",\"role\":\"TEACHER\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
+                .andExpect(jsonPath("$.code").value(400))
+                // 全局异常处理会用「字段名 + 消息」拼接，消息里不能再重复一遍字段名
+                .andExpect(jsonPath("$.message").value("role must be STUDENT"));
 
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
