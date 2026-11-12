@@ -20,8 +20,6 @@ const form = reactive<LoginForm>({
 function applyRoleDefaults() {
   if (form.role === 'ADMIN') {
     form.username = 'admin'
-  } else if (form.role === 'TEACHER') {
-    form.username = 'teacher01'
   } else {
     form.username = 'student01'
   }
@@ -77,8 +75,7 @@ async function handleLogin() {
           <el-segmented
             v-model="form.role"
             :options="[
-              { label: '学生', value: 'STUDENT' },
-              { label: '教师', value: 'TEACHER' },
+              { label: '用户', value: 'STUDENT' },
               { label: '管理员', value: 'ADMIN' },
             ]"
             block

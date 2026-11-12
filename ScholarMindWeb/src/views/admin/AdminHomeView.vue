@@ -15,6 +15,8 @@ import {
 import { getAdminDashboard } from '@/api/admin'
 import {
   approveLiterature,
+  deleteAdminLiterature,
+  listLiteratures,
   listPendingLiteratures,
   rejectLiterature,
 } from '@/api/literature'
@@ -33,7 +35,6 @@ import type { KnowledgeDocument, KnowledgeDocumentPayload } from '@/types/rag'
 const emptyOverview = {
   userTotal: 0,
   studentTotal: 0,
-  teacherTotal: 0,
   activeUserTotal: 0,
   literatureTotal: 0,
   publishedLiteratureTotal: 0,
@@ -57,8 +58,7 @@ const demoDashboard: AdminDashboard = {
   overview: {
     ...emptyOverview,
     userTotal: 36,
-    studentTotal: 28,
-    teacherTotal: 7,
+    studentTotal: 35,
     activeUserTotal: 24,
     literatureTotal: 128,
     publishedLiteratureTotal: 94,
@@ -90,8 +90,7 @@ const demoDashboard: AdminDashboard = {
     { name: 'Digital Library', count: 26 },
   ],
   userRoleStats: [
-    { name: 'STUDENT', count: 28 },
-    { name: 'TEACHER', count: 7 },
+    { name: 'STUDENT', count: 35 },
     { name: 'ADMIN', count: 1 },
   ],
   hotLiteratures: [
@@ -145,6 +144,17 @@ const knowledgeDrawer = ref(false)
 const savingKnowledge = ref(false)
 const editingKnowledgeId = ref<Id | null>(null)
 
+// 文献库管理（客户需求：管理中心添加「删除文献」）
+const archiveList = ref<Literature[]>([])
+const archiveLoading = ref(false)
+const archiveTotal = ref(0)
+const archiveQuery = reactive({
+  page: 1,
+  size: 8,
+  keyword: '',
+})
+const deletingId = ref<Id | null>(null)
+
 const dashboardQuery = reactive({
   days: 14,
   limit: 6,
@@ -160,7 +170,7 @@ const knowledgeForm = reactive<KnowledgeDocumentPayload>({
 const overviewCards = computed(() => {
   const item = dashboard.value.overview
   return [
-    { label: '用户总数', value: item.userTotal, hint: `${item.studentTotal} 学生 / ${item.teacherTotal} 教师`, icon: User },
+    { label: '用户总数', value: item.userTotal, hint: `${item.studentTotal} 用户端账号`, icon: User },
     { label: '文献总量', value: item.literatureTotal, hint: `${item.publishedLiteratureTotal} 已发布`, icon: DocumentAdd },
     { label: '待审核', value: item.pendingReviewTotal, hint: `${item.privateLiteratureTotal} 私有文献`, icon: Timer },
   ]
@@ -346,8 +356,67 @@ async function rebuild(item: KnowledgeDocument) {
   }
 }
 
+async function fetchArchive() {
+  archiveLoading.value = true
+  try {
+    const result = await listLiteratures({
+      page: archiveQuery.page,
+      size: archiveQuery.size,
+      keyword: archiveQuery.keyword.trim() || undefined,
+    })
+    archiveList.value = result.items
+    archiveTotal.value = result.total
+  } catch (error) {
+    console.error('archive list failed, scenario=admin-archive-literatures', error)
+    archiveList.value = []
+    archiveTotal.value = 0
+  } finally {
+    archiveLoading.value = false
+  }
+}
+
+function searchArchive() {
+  archiveQuery.page = 1
+  void fetchArchive()
+}
+
+async function removeFromArchive(item: Literature) {
+  try {
+    await ElMessageBox.confirm(
+      `删除《${item.title}》会同时清理它的分块、收藏、阅读历史、笔记、引用、问答记录与附件文件，且不可恢复。确认删除？`,
+      '删除文献',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    throw error
+  }
+
+  deletingId.value = item.id
+  try {
+    await deleteAdminLiterature(item.id)
+    ElMessage.success('文献已删除')
+    if (archiveList.value.length === 1 && archiveQuery.page > 1) {
+      archiveQuery.page -= 1
+    }
+    await Promise.all([fetchArchive(), fetchPending(), fetchDashboard()])
+  } catch (error) {
+    console.error(
+      'archive delete failed, scenario=admin-delete-literature, literatureId=%s',
+      item.id,
+      error,
+    )
+  } finally {
+    deletingId.value = null
+  }
+}
+
 onMounted(async () => {
-  await Promise.all([fetchDashboard(), fetchPending(), fetchKnowledge()])
+  await Promise.all([fetchDashboard(), fetchPending(), fetchKnowledge(), fetchArchive()])
 })
 </script>
 
@@ -452,6 +521,72 @@ onMounted(async () => {
       </section>
     </div>
 
+    <section class="glass-panel archive-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="panel__eyebrow">Literature Archive</p>
+          <h3>文献库管理</h3>
+        </div>
+        <div class="archive-actions">
+          <el-input
+            v-model="archiveQuery.keyword"
+            placeholder="按标题 / 作者搜索"
+            clearable
+            :prefix-icon="Search"
+            @keyup.enter="searchArchive"
+            @clear="searchArchive"
+          />
+          <el-button :icon="Refresh" :loading="archiveLoading" @click="searchArchive">
+            查询
+          </el-button>
+        </div>
+      </div>
+
+      <el-table v-loading="archiveLoading" :data="archiveList" row-key="id" stripe>
+        <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="author" label="作者" width="140" show-overflow-tooltip />
+        <el-table-column label="分类" width="150">
+          <template #default="{ row }">{{ displayCategoryName(row.categoryName) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">{{ displayStatusName(row.status) }}</template>
+        </el-table-column>
+        <el-table-column label="可见性" width="100">
+          <template #default="{ row }">
+            {{ row.visibility === 'PUBLIC' ? '公开' : '私有' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="110" align="right">
+          <template #default="{ row }">
+            <el-button
+              type="danger"
+              link
+              :loading="deletingId === row.id"
+              @click="removeFromArchive(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <el-empty description="没有匹配的文献" />
+        </template>
+      </el-table>
+
+      <div class="admin-pagination">
+        <el-pagination
+          v-model:current-page="archiveQuery.page"
+          v-model:page-size="archiveQuery.size"
+          :total="archiveTotal"
+          :page-sizes="[8, 16, 32]"
+          layout="total, sizes, prev, pager, next"
+          background
+          @current-change="fetchArchive"
+          @size-change="searchArchive"
+        />
+      </div>
+    </section>
+
     <section class="admin-insight-grid">
       <div class="glass-panel chart-panel">
         <div class="panel-heading">
@@ -526,9 +661,30 @@ onMounted(async () => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* 文献库管理（管理中心内的删除入口） */
+.archive-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.archive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.archive-actions .el-input {
+  width: 260px;
+}
+
 @media (max-width: 900px) {
   .admin-kpi-grid--three {
     grid-template-columns: 1fr;
+  }
+
+  .archive-actions .el-input {
+    width: 100%;
   }
 }
 </style>

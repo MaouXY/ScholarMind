@@ -46,6 +46,7 @@ public class LiteratureService {
     private final LiteratureCategoryMapper categoryMapper;
     private final FileMetadataMapper fileMetadataMapper;
     private final LiteratureCategoryService categoryService;
+    private final LiteraturePurgeService literaturePurgeService;
 
     public PageResult<LiteratureResponse> list(long page, long size, String keyword, Long categoryId, String status, String visibility) {
         CurrentUser currentUser = CurrentUserProvider.require();
@@ -142,8 +143,22 @@ public class LiteratureService {
         CurrentUser currentUser = CurrentUserProvider.require();
         Literature literature = requireLiterature(id, "literature-delete");
         ensureOwnerOrAdmin(literature, currentUser, "literature-delete");
+        literaturePurgeService.purge(literature, "literature-delete");
         literatureMapper.deleteById(id);
-        log.info("literature deleted, scenario=literature-delete, literatureId={}, operatorId={}", id, currentUser.getId());
+        log.info("literature deleted, scenario=literature-delete, literatureId={}, operatorId={}, roleCode={}",
+                id, currentUser.getId(), currentUser.getRoleCode());
+    }
+
+    /** 管理端删除文献：不限制文献状态与归属，级联清理关联数据后再逻辑删除文献主表。 */
+    @Transactional
+    public void adminDelete(Long id) {
+        CurrentUser admin = requireAdmin("admin-delete-literature");
+        Literature literature = requireLiterature(id, "admin-delete-literature");
+        literaturePurgeService.purge(literature, "admin-delete-literature");
+        literatureMapper.deleteById(id);
+        log.info("literature deleted by admin, scenario=admin-delete-literature, literatureId={}, adminId={}, "
+                        + "uploaderId={}, status={}, visibility={}",
+                id, admin.getId(), literature.getUploaderId(), literature.getStatus(), literature.getVisibility());
     }
 
     @Transactional

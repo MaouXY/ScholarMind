@@ -1,4 +1,5 @@
-export type UserRole = 'STUDENT' | 'TEACHER' | 'ADMIN'
+// 产品只保留用户端（STUDENT）与管理端（ADMIN）；教师端已下线（见 doc 10 B1）
+export type UserRole = 'STUDENT' | 'ADMIN'
 
 export type Id = string
 

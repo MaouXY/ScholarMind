@@ -19,4 +19,8 @@ public interface LiteratureFavoriteMapper extends BaseMapper<LiteratureFavorite>
      */
     @Delete("DELETE FROM literature_favorite WHERE user_id = #{userId} AND literature_id = #{literatureId}")
     int hardDeleteByUserAndLiterature(@Param("userId") Long userId, @Param("literatureId") Long literatureId);
+
+    /** 文献被删除时清理所有用户对它的收藏记录（含历史逻辑删除残留行）。 */
+    @Delete("DELETE FROM literature_favorite WHERE literature_id = #{literatureId}")
+    int hardDeleteByLiteratureId(@Param("literatureId") Long literatureId);
 }

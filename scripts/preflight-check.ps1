@@ -159,7 +159,7 @@ if ($backendUp) {
 
 Write-Host '--- 5. 结论 ---'
 if ($script:criticalFailed -eq 0) {
-    Write-Host ("  ✅ 关键项全部通过（警告 {0} 项）：http://localhost:5173 可用 admin / student01 / teacher01 登录（密码 123456）" -f $script:warnings)
+    Write-Host ("  ✅ 关键项全部通过（警告 {0} 项）：http://localhost:5173 可用 admin / student01 登录（密码 123456；教师端已下线）" -f $script:warnings)
     exit 0
 } else {
     Write-Host ("  ❌ 有 {0} 项关键检查失败，请先按上方提示处理；警告 {1} 项。" -f $script:criticalFailed, $script:warnings)

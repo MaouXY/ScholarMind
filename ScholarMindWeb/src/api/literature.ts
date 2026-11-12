@@ -221,6 +221,11 @@ export function rejectLiterature(id: Id, reason: string) {
   })
 }
 
+/** 管理端删除文献：后端会级联清理分块、收藏、阅读历史、笔记、引用、问答、附件与向量 */
+export function deleteAdminLiterature(id: Id) {
+  return request.delete<never, void>(`/admin/literatures/${id}`)
+}
+
 export function uploadLiteratureFile(file: File) {
   const formData = new FormData()
   formData.append('file', file)

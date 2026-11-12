@@ -32,4 +32,11 @@ public class AdminLiteratureController {
     public ApiResponse<LiteratureResponse> reject(@PathVariable Long id, @Valid @RequestBody LiteratureReviewRequest request) {
         return ApiResponse.success(literatureService.reject(id, request));
     }
+
+    /** 管理端删除文献：级联清理分块、收藏、阅读历史、笔记、引用、问答、附件与向量。 */
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        literatureService.adminDelete(id);
+        return ApiResponse.success();
+    }
 }

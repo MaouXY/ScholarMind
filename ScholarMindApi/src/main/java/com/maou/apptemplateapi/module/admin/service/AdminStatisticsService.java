@@ -168,7 +168,6 @@ public class AdminStatisticsService {
         return new AdminOverviewResponse(
                 toInt(countUsers(null, null)),
                 toInt(countUsers("STUDENT", null)),
-                toInt(countUsers("TEACHER", null)),
                 toInt(countUsers(null, 1)),
                 toInt(countLiteratures(null, null)),
                 toInt(countLiteratures("PUBLISHED", null)),

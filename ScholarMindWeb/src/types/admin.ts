@@ -3,7 +3,6 @@ import type { Id, UserRole } from '@/types/auth'
 export interface AdminOverview {
   userTotal: number
   studentTotal: number
-  teacherTotal: number
   activeUserTotal: number
   literatureTotal: number
   publishedLiteratureTotal: number

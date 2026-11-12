@@ -21,8 +21,7 @@ const query = reactive({
 })
 
 const roleOptions: Array<{ label: string; value: UserRole }> = [
-  { label: '学生', value: 'STUDENT' },
-  { label: '教师', value: 'TEACHER' },
+  { label: '用户', value: 'STUDENT' },
   { label: '管理员', value: 'ADMIN' },
 ]
 
@@ -37,13 +36,11 @@ const enabledCount = computed(
 
 function roleLabel(role: UserRole) {
   if (role === 'ADMIN') return '管理员'
-  if (role === 'TEACHER') return '教师'
-  return '学生'
+  return '用户'
 }
 
 function roleTagType(role: UserRole) {
   if (role === 'ADMIN') return 'danger'
-  if (role === 'TEACHER') return 'warning'
   return 'primary'
 }
 

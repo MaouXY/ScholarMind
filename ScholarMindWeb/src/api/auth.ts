@@ -11,14 +11,6 @@ const mockUsers: Record<LoginForm['role'], UserProfile> = {
     role: 'STUDENT',
     status: 1,
   },
-  TEACHER: {
-    id: '1000000000000000003',
-    username: 'teacher01',
-    nickname: 'Teacher One',
-    email: 'teacher01@scholarmind.local',
-    role: 'TEACHER',
-    status: 1,
-  },
   ADMIN: {
     id: '1000000000000000001',
     username: 'admin',

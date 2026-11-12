@@ -51,12 +51,6 @@ const router = createRouter({
           meta: { role: 'STUDENT', title: '智能问答' },
         },
         {
-          path: 'teacher/review',
-          name: 'teacher-review',
-          component: () => import('@/views/worker/WorkerHomeView.vue'),
-          meta: { role: 'TEACHER', title: '阅读指导台' },
-        },
-        {
           path: 'admin/dashboard',
           name: 'admin-dashboard',
           component: () => import('@/views/admin/AdminHomeView.vue'),

@@ -31,9 +31,17 @@ import com.maou.apptemplateapi.module.literature.dto.RetrievalCompareResponse;
 import com.maou.apptemplateapi.module.literature.entity.Literature;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureCategory;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureChunk;
+import com.maou.apptemplateapi.module.literature.entity.LiteratureFavorite;
+import com.maou.apptemplateapi.module.literature.entity.ReadingHistory;
+import com.maou.apptemplateapi.module.literature.entity.ReadingNote;
+import com.maou.apptemplateapi.module.citation.entity.CitationRecord;
+import com.maou.apptemplateapi.module.citation.mapper.CitationRecordMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureCategoryMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureChunkMapper;
+import com.maou.apptemplateapi.module.literature.mapper.LiteratureFavoriteMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
+import com.maou.apptemplateapi.module.literature.mapper.ReadingHistoryMapper;
+import com.maou.apptemplateapi.module.literature.mapper.ReadingNoteMapper;
 import com.maou.apptemplateapi.module.literature.service.LiteratureAiService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureFavoriteService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureIndexService;
@@ -43,6 +51,7 @@ import com.maou.apptemplateapi.module.literature.service.ReadingNoteService;
 import com.maou.apptemplateapi.module.rag.service.MilvusLiteratureVectorService;
 import com.maou.apptemplateapi.module.user.entity.UserAccount;
 import com.maou.apptemplateapi.module.user.mapper.UserAccountMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -87,7 +96,7 @@ import static org.mockito.Mockito.when;
 class LiteratureMainFlowIntegrationTest {
 
     private static final long ADMIN_ID = 7700000000000000001L;
-    private static final long TEACHER_ID = 7700000000000000002L;
+    private static final long UPLOADER_ID = 7700000000000000002L;
     private static final long STUDENT_A_ID = 7700000000000000003L;
     private static final long STUDENT_B_ID = 7700000000000000004L;
     private static final long CATEGORY_ID = 7700000000000000010L;
@@ -100,6 +109,14 @@ class LiteratureMainFlowIntegrationTest {
     private LiteratureMapper literatureMapper;
     @Autowired
     private LiteratureChunkMapper chunkMapper;
+    @Autowired
+    private LiteratureFavoriteMapper favoriteMapper;
+    @Autowired
+    private ReadingHistoryMapper readingHistoryMapper;
+    @Autowired
+    private ReadingNoteMapper readingNoteMapper;
+    @Autowired
+    private CitationRecordMapper citationRecordMapper;
     @Autowired
     private AiTaskRecordMapper aiTaskRecordMapper;
     @Autowired
@@ -129,7 +146,7 @@ class LiteratureMainFlowIntegrationTest {
     @BeforeEach
     void setUp() {
         insertUser(ADMIN_ID, "it_admin", UserRole.ADMIN);
-        insertUser(TEACHER_ID, "it_teacher", UserRole.TEACHER);
+        insertUser(UPLOADER_ID, "it_uploader", UserRole.STUDENT);
         insertUser(STUDENT_A_ID, "it_student_a", UserRole.STUDENT);
         insertUser(STUDENT_B_ID, "it_student_b", UserRole.STUDENT);
 
@@ -152,10 +169,10 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("主链路：新建公开文献（自动进入待审核）→ 管理员通过后公开可见")
     void literatureLifecycle_publishAfterReview() {
-        authenticate(TEACHER_ID, UserRole.TEACHER);
+        authenticate(UPLOADER_ID, UserRole.STUDENT);
         LiteratureResponse created = literatureService.create(literatureRequest("集成测试文献：混合检索方法", "PUBLIC"));
         assertEquals("PENDING_REVIEW", created.status(), "公开文献上传后自动进入待审核");
-        assertEquals(TEACHER_ID, created.uploaderId());
+        assertEquals(UPLOADER_ID, created.uploaderId());
 
         authenticate(ADMIN_ID, UserRole.ADMIN);
         LiteratureResponse published = literatureService.approve(created.id());
@@ -163,7 +180,7 @@ class LiteratureMainFlowIntegrationTest {
         assertNotNull(literatureMapper.selectById(created.id()).getReviewedAt());
 
         // 私有文献则先落草稿，需显式提交（此处验证草稿态不被自动发布）
-        authenticate(TEACHER_ID, UserRole.TEACHER);
+        authenticate(UPLOADER_ID, UserRole.STUDENT);
         LiteratureResponse privateDraft = literatureService.create(literatureRequest("私有草稿文献", "PRIVATE"));
         assertEquals("DRAFT", privateDraft.status());
     }
@@ -171,7 +188,7 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("异常分支：私有文献不许提交审核、已发布不许重复提交、草稿不许直接审核")
     void literatureLifecycle_rejectsIllegalStateTransition() {
-        authenticate(TEACHER_ID, UserRole.TEACHER);
+        authenticate(UPLOADER_ID, UserRole.STUDENT);
         LiteratureResponse privateOne = literatureService.create(literatureRequest("私有文献提交测试", "PRIVATE"));
         assertEquals("DRAFT", privateOne.status());
         BusinessException privateSubmit = assertThrows(BusinessException.class, () -> literatureService.submit(privateOne.id()));
@@ -181,7 +198,7 @@ class LiteratureMainFlowIntegrationTest {
         authenticate(ADMIN_ID, UserRole.ADMIN);
         literatureService.approve(publicOne.id());
 
-        authenticate(TEACHER_ID, UserRole.TEACHER);
+        authenticate(UPLOADER_ID, UserRole.STUDENT);
         BusinessException resubmit = assertThrows(BusinessException.class, () -> literatureService.submit(publicOne.id()));
         assertEquals(ErrorCode.LITERATURE_STATUS_INVALID, resubmit.getErrorCode());
 
@@ -194,7 +211,7 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("异常分支：审核退回需记录原因，退回后为 REJECTED")
     void literatureLifecycle_rejectWithReason() {
-        authenticate(TEACHER_ID, UserRole.TEACHER);
+        authenticate(UPLOADER_ID, UserRole.STUDENT);
         LiteratureResponse created = literatureService.create(literatureRequest("待退回文献", "PUBLIC"));
 
         authenticate(ADMIN_ID, UserRole.ADMIN);
@@ -226,7 +243,7 @@ class LiteratureMainFlowIntegrationTest {
         when(milvusLiteratureVectorService.enabled()).thenReturn(true);
         when(milvusLiteratureVectorService.rebuildLiterature(any(), any(), anyString())).thenReturn(false);
 
-        authenticate(TEACHER_ID, UserRole.TEACHER);
+        authenticate(UPLOADER_ID, UserRole.STUDENT);
         LiteratureResponse created = literatureService.create(literatureRequest("索引重建测试文献", "PRIVATE"));
 
         LiteratureIndexResponse index = literatureIndexService.rebuild(created.id());
@@ -471,6 +488,41 @@ class LiteratureMainFlowIntegrationTest {
 
         authenticate(ADMIN_ID, UserRole.ADMIN);
         assertNotNull(adminStatisticsService.dashboard(7, 5).overview());
+    }
+
+    @Test
+    @DisplayName("管理端删除文献：级联清理分块/收藏/历史/笔记/引用，且非管理员不可调用")
+    void adminDelete_purgesRelatedDataAndRequiresAdmin() {
+        authenticate(STUDENT_A_ID, UserRole.STUDENT);
+        LiteratureResponse created = literatureService.create(literatureRequest("级联删除测试文献", "PRIVATE"));
+        insertChunk(created.id(), 0, "级联删除测试分块：验证删除文献后不再残留分块。");
+        favoriteService.favorite(created.id());
+        readingHistoryService.upsert(created.id(), new ReadingHistoryRequest(1, 40, 120));
+        readingNoteService.create(new ReadingNoteRequest(created.id(), "删除前笔记", "该笔记应随文献一起清理。", 0));
+        citationService.save(new CitationSaveRequest(created.id(), "GB_T_7714", null));
+
+        // 学生调用管理端删除接口应被拒绝
+        BusinessException forbidden = assertThrows(BusinessException.class,
+                () -> literatureService.adminDelete(created.id()));
+        assertEquals(ErrorCode.FORBIDDEN, forbidden.getErrorCode());
+
+        authenticate(ADMIN_ID, UserRole.ADMIN);
+        literatureService.adminDelete(created.id());
+
+        assertEquals(0, chunkMapper.selectCount(new LambdaQueryWrapper<LiteratureChunk>()
+                .eq(LiteratureChunk::getLiteratureId, created.id())).intValue());
+        assertEquals(0, favoriteMapper.selectCount(new LambdaQueryWrapper<LiteratureFavorite>()
+                .eq(LiteratureFavorite::getLiteratureId, created.id())).intValue());
+        assertEquals(0, readingHistoryMapper.selectCount(new LambdaQueryWrapper<ReadingHistory>()
+                .eq(ReadingHistory::getLiteratureId, created.id())).intValue());
+        assertEquals(0, readingNoteMapper.selectCount(new LambdaQueryWrapper<ReadingNote>()
+                .eq(ReadingNote::getLiteratureId, created.id())).intValue());
+        assertEquals(0, citationRecordMapper.selectCount(new LambdaQueryWrapper<CitationRecord>()
+                .eq(CitationRecord::getLiteratureId, created.id())).intValue());
+
+        BusinessException gone = assertThrows(BusinessException.class,
+                () -> literatureService.detail(created.id()));
+        assertEquals(ErrorCode.LITERATURE_NOT_FOUND, gone.getErrorCode());
     }
 
     // ---------------------------------------------------------------- 工具方法

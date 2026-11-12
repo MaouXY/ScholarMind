@@ -570,7 +570,6 @@ button {
 }
 
 .library-page,
-.teacher-page,
 .admin-page,
 .analytics-page {
   display: grid;
@@ -580,13 +579,6 @@ button {
 .library-layout {
   display: grid;
   grid-template-columns: 300px minmax(280px, 0.9fr) minmax(420px, 1.35fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.teacher-layout {
-  display: grid;
-  grid-template-columns: 320px minmax(420px, 1fr) 300px;
   gap: 20px;
   align-items: start;
 }
@@ -1384,7 +1376,6 @@ button {
 
 @media (max-width: 1280px) {
   .library-layout,
-  .teacher-layout,
   .admin-layout,
   .analytics-grid,
   .admin-insight-grid {

@@ -68,6 +68,11 @@ public class UserService {
             log.warn("user login failed, scenario=user-login, reason=password-invalid, userId={}, username={}", account.getId(), account.getUsername());
             throw new BusinessException(ErrorCode.AUTH_LOGIN_FAILED);
         }
+        if (UserRole.TEACHER.name().equalsIgnoreCase(account.getRole())) {
+            log.warn("user login rejected, scenario=user-login, reason=teacher-role-offline, userId={}, username={}, role={}",
+                    account.getId(), account.getUsername(), account.getRole());
+            throw new BusinessException(ErrorCode.AUTH_ROLE_FORBIDDEN, "教师端已下线，请使用用户端或管理端账号登录");
+        }
         log.info("user logged in, scenario=user-login, userId={}, username={}, role={}", account.getId(), account.getUsername(), account.getRole());
         return issueToken(account);
     }

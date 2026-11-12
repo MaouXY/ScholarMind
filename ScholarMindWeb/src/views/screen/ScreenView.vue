@@ -3,14 +3,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 
 import { getAdminDashboard } from '@/api/admin'
-import { localizeDimensionName } from '@/utils/format'
+import { displayRoleName, localizeDimensionName } from '@/utils/format'
 import type { AdminDashboard, AdminTrendPoint } from '@/types/admin'
 
 const demoDashboard: AdminDashboard = {
   overview: {
     userTotal: 36,
-    studentTotal: 28,
-    teacherTotal: 7,
+    studentTotal: 35,
     activeUserTotal: 24,
     literatureTotal: 128,
     publishedLiteratureTotal: 94,
@@ -50,8 +49,7 @@ const demoDashboard: AdminDashboard = {
     { name: '推荐系统', count: 22 },
   ],
   userRoleStats: [
-    { name: 'STUDENT', count: 28 },
-    { name: 'TEACHER', count: 7 },
+    { name: 'STUDENT', count: 35 },
     { name: 'ADMIN', count: 1 },
   ],
   hotLiteratures: [],
@@ -198,7 +196,7 @@ onMounted(fetchDashboard)
         </div>
         <div class="dimension-pill-list">
           <span v-for="item in dashboard.userRoleStats" :key="item.name">
-            <strong>{{ item.count }}</strong>{{ item.name }}
+            <strong>{{ item.count }}</strong>{{ displayRoleName(item.name) }}
           </span>
         </div>
       </section>

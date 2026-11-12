@@ -22,6 +22,16 @@ export function displayStatusName(status?: string | null) {
   return statusLabels[status] ?? status
 }
 
+const roleLabels: Record<string, string> = {
+  STUDENT: '用户端',
+  ADMIN: '管理端',
+}
+
+export function displayRoleName(role?: string | null) {
+  if (!role) return '未知角色'
+  return roleLabels[role] ?? role
+}
+
 export function localizeDimensionName(name?: string | null) {
   return displayCategoryName(name)
 }

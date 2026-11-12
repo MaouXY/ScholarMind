@@ -3,7 +3,8 @@ INSERT INTO user_account (
 ) VALUES
   (1000000000000000001, 'admin', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', 'System Admin', 'admin@scholarmind.local', 'ADMIN', 1, 0),
   (1000000000000000002, 'student01', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', 'Student One', 'student01@scholarmind.local', 'STUDENT', 1, 0),
-  (1000000000000000003, 'teacher01', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', 'Teacher One', 'teacher01@scholarmind.local', 'TEACHER', 1, 0)
+  -- 原 teacher01：教师端下线后转为用户端账号，保留其上传文献的归属（见 09 脚本）
+  (1000000000000000003, 'student08', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '林晓', 'student08@scholarmind.local', 'STUDENT', 1, 0)
 ON DUPLICATE KEY UPDATE
   nickname = VALUES(nickname),
   email = VALUES(email),

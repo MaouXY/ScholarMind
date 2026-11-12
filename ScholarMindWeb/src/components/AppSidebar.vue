@@ -28,8 +28,7 @@ const visibleMenus = computed(() =>
 
 const roleLabel = computed(() => {
   const labels: Record<string, string> = {
-    STUDENT: '学生阅读空间',
-    TEACHER: '教师指导空间',
+    STUDENT: '用户阅读空间',
     ADMIN: '平台治理空间',
   }
   return labels[props.role] ?? '阅读空间'

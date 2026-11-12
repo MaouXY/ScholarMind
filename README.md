@@ -88,8 +88,9 @@ npm run dev
 | 账号 | 角色 | 说明 |
 | --- | --- | --- |
 | `admin` | ADMIN | 管理中心、用户/分类管理、AI 调用日志、运营分析 |
-| `student01`~`student07` | STUDENT | 检索、阅读、笔记、引用、我的书房 |
-| `teacher01`~`teacher03` | TEACHER | 阅读指导台 |
+| `student01`~`student10` | STUDENT | 检索、阅读、笔记、引用、我的书房 |
+
+> 教师端已按 2026-10-31《完善需求（改）》下线：`student08`~`student10` 由原 `teacher01`~`teacher03` 转换而来（历史文献归属不变），后端保留 `TEACHER` 枚举值仅用于解析旧 JWT，教师账号登录会被拒绝（业务码 `9004`）。
 
 ### 上传演示文件（可选，需 RustFS 在线）
 
@@ -100,7 +101,13 @@ cd ScholarMind
 pwsh -NoProfile -File .\scripts\seed-demo-files.ps1
 ```
 
-脚本会登录教师账号、为未绑定文件的已发布文献生成演示文本、调用上传接口并通过文献更新接口绑定（可重复执行，已绑定者自动跳过）。
+脚本以 `admin` 登录，为未绑定文件的已发布文献生成演示文本、调用上传接口并通过文献更新接口绑定（可重复执行，已绑定者自动跳过）。
+
+检索演示文献（`sql/10_seed_retrieval_demo.sql` 的 12 篇）的原文由脚本按库内分块正文生成，保证「下载原文」与「在线阅读」完全一致：
+
+```powershell
+pwsh -NoProfile -File .\scripts\seed-retrieval-demo-files.ps1
+```
 
 ### 辅助脚本一览（`scripts/`）
 
@@ -108,8 +115,9 @@ pwsh -NoProfile -File .\scripts\seed-demo-files.ps1
 | --- | --- | --- |
 | `preflight-check.ps1` | **验收前一键体检**：依赖端口、后端健康、前端可访问、登录与代理、演示数据规模、下载链路抽检、混合检索向量路、AI 任务健康度；输出 `[OK]/[WARN]/[FAIL]` 与结论，退出码 0 表示关键项全通过 | 后端与前端已启动 |
 | `seed-demo-files.ps1` | 为已发布文献上传并绑定原文文件（幂等，可重复执行） | RustFS 在线 |
+| `seed-retrieval-demo-files.ps1` | 为 12 篇检索演示文献绑定原文（正文取自库内分块，保证在线阅读与下载一致） | 已执行 `sql/10`、RustFS 在线 |
 | `make-sample-pdf.ps1` | 生成用于全文解析验证的最小示例 PDF（手写 PDF 结构，无需第三方依赖） | 无 |
-| `verify-pdf-parsing.ps1` | 端到端验证「PDF → 正文分块」：上传 PDF → 建文献并绑定 → 审核发布 → 重建索引 → 校验分块正文含 PDF 关键词 | RustFS 在线、后端已启动 |
+| `verify-pdf-parsing.ps1` | 端到端验证「PDF → 正文分块」：上传 PDF → 建文献并绑定 → 审核发布 → 重建索引 → 校验分块正文含 PDF 关键词 → 调用管理端删除清理；`-KeepData` 可保留数据，`-LogPath` 可打印后端解析日志 | RustFS 在线、后端已启动 |
 
 > 验收步骤与预期结果详见 `doc/...-07-系统验收流程.md`；演示配图清单见 `doc/...-06-系统截图清单.md`。
 
@@ -152,37 +160,38 @@ npm run build           # 类型门禁 + vite build
 
 | 路由 | 页面 | 主要能力 |
 | --- | --- | --- |
-| `/student/library` | 文献检索与阅读 | 语义检索、自然语言检索、文献上传/编辑、AI 摘要、问答、对比 |
+| `/student/library` | 文献检索与阅读 | 自然语言 / 语义 / 混合三种检索模式、文献上传与编辑、收藏、右侧题录信息面板 |
 | `/student/literature/:id` | 文献详情 | 题录、摘要与 AI 摘要、索引状态、收藏、**引用格式（GB/T 7714 / APA / MLA）与下载** |
-| `/student/literature/:id/read` | 在线阅读 | 真实分块正文、目录导航、阅读进度与时长、笔记管理、下载与笔记导出 |
-| `/student/literature/:id/qa` | 智能问答 | 基于原文片段的问答与引用、历史问答、多文献对比 |
+| `/student/literature/:id/read` | 在线阅读 | 真实分块正文、目录导航、阅读进度与时长（自动保存）、笔记管理、下载与笔记导出 |
+| `/student/literature/:id/qa` | 智能问答 | 基于原文片段的问答与引用、历史问答 |
 | `/student/shelf` | 我的书房 | 收藏 / 阅读历史 / 笔记三类资产的汇总与导出 |
-| `/teacher/review` | 阅读指导台 | 文献浏览与阅读指导 |
-| `/admin/dashboard` | 管理中心 | 统计 KPI、公开文献审核、RAG 知识库维护、运行健康度 |
+| `/admin/dashboard` | 管理中心 | 统计 KPI、公开文献审核、**文献库管理与删除**、RAG 知识库维护 |
 | `/admin/users`、`/admin/categories` | 用户/分类管理 | 账号启停、分类增删改 |
 | `/admin/ai-logs` | AI 调用日志 | 任务分页与筛选、请求/响应预览、健康度概要 |
 | `/admin/operations` | 运营分析 | 热门关键词、平台指标、AI 运营分析报告（含兜底标识） |
 | `/analytics/overview` | 数据总览 | 趋势与维度分布大屏 |
+
+> 教师端（`/teacher/review`）已按改版需求移除；用户端即原学生端，路由前缀保持 `/student` 以避免大范围改动。
 
 ### 核心接口一览（前缀 `/api/v1`）
 
 - 文献：`GET /literatures`、`GET /literatures/{id}/view`、`GET /literatures/{id}/chunks`、`GET /literatures/{id}/citations`、`GET /literatures/{id}/download`
 - 阅读：`GET|PUT /reading-history`、`POST|DELETE /favorites`、`GET|POST|PUT|DELETE /notes`、`GET /notes/export`
 - 引用：`GET|POST /citations`、`DELETE /citations/{id}`、`GET /citations/export`
-- 检索与 AI：`POST /search/semantic`、`POST /search/hybrid`（混合检索）、`POST /search/retrieval-compare`（稀疏/稠密/RRF 三路对比）、`POST /search/natural-language`、`POST /ai/literature/{id}/summary|question|index`、`POST /ai/literature/compare`
-- 管理：`GET /admin/statistics/dashboard|keywords`、`POST /admin/statistics/report`、`GET /admin/ai-tasks`、`GET /admin/ai-tasks/summary`、`GET|PUT /admin/users`、`POST /admin/literatures/{id}/approve|reject`、`POST /admin/rag/literature-vectors/rebuild`（把已发布文献分块写入 Milvus 向量库）
+- 检索与 AI：`POST /search/semantic`、`POST /search/hybrid`（混合检索）、`POST /search/retrieval-compare`（稀疏/稠密/RRF 三路对比，用于算法验证与论文数据）、`POST /search/natural-language`、`POST /ai/literature/{id}/summary|question|index`、`POST /ai/literature/compare`
+- 管理：`GET /admin/statistics/dashboard|keywords`、`POST /admin/statistics/report`、`GET /admin/ai-tasks`、`GET /admin/ai-tasks/summary`、`GET|PUT /admin/users`、`POST /admin/literatures/{id}/approve|reject`、`DELETE /admin/literatures/{id}`（级联清理分块/收藏/历史/笔记/引用/问答、附件对象与向量）、`POST /admin/rag/literature-vectors/rebuild`（把已发布文献分块写入 Milvus 向量库）
 
 ## 七、演示路径建议
 
-1. 学生检索「混合检索 如何避免纯向量召回的问题」→ 查看语义检索与意图解析结果；
-2. 在「混合检索对比」区块输入查询，对比 ① 关键词召回 / ② 向量召回 / ③ RRF 融合三列的名次与得分差异；
+1. 用户端检索「怎样把几个检索器给出的候选清单合成为一个更可靠的排序」→ 切换到「语义检索」与「混合检索」，对比同一问题下三种模式返回的文献与名次差异；
+2. 检索「BM25 k1 参数对倒排索引检索效果的影响」→ 术语型问题下稀疏召回占优，可与口语化问题对照演示；
 3. 进入文献详情，生成 AI 摘要、切换三种引用格式并复制 / 收藏引用 / 导出参考文献；
 4. 上传一个 PDF 文献并绑定原文，执行「重建索引」→ 在线阅读页即可看到**从 PDF 抽取的真实正文分块**；
 5. 在线阅读时保存进度、记录笔记，导出本篇笔记；
-6. 智能问答提问并核对引用片段，做一次多文献对比；
+6. 智能问答提问并核对引用片段；
 7. 打开「我的书房」查看收藏、阅读历史与笔记汇总；
-8. 管理员处理待审核文献、查看 AI 调用日志与热门关键词、一键生成运营分析报告；
-9. 打开数据总览大屏查看趋势与分布。
+8. 管理员处理待审核文献、在「文献库管理」中删除一篇文献（观察分块、收藏、附件与向量一并清理）；
+9. 查看 AI 调用日志与热门关键词、一键生成运营分析报告，打开数据总览大屏。
 
 ## 八、已知限制
 

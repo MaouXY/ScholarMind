@@ -11,18 +11,20 @@ import {
   setToken,
 } from '@/utils/storage'
 
+// 教师端已下线：历史 localStorage 里可能残留 TEACHER，统一按用户端处理
+function normalizeRole(value?: string): UserRole {
+  return value === 'ADMIN' ? 'ADMIN' : 'STUDENT'
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const storedUser = getStoredUser()
   const token = ref(getToken())
-  const role = ref<UserRole>(storedUser?.role ?? 'STUDENT')
+  const role = ref<UserRole>(normalizeRole(storedUser?.role))
   const displayName = ref(storedUser?.nickname || storedUser?.username || 'Scholar User')
 
   const defaultRoute = computed(() => {
     if (role.value === 'ADMIN') {
       return '/admin/dashboard'
-    }
-    if (role.value === 'TEACHER') {
-      return '/teacher/review'
     }
     return '/student/library'
   })
@@ -30,10 +32,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(payload: LoginForm) {
     const response = await loginApi(payload)
     token.value = response.token
-    role.value = response.user.role
+    role.value = normalizeRole(response.user.role)
     displayName.value = response.user.nickname || response.user.username
     setToken(response.token)
-    setStoredUser(response.user)
+    setStoredUser({ ...response.user, role: role.value })
   }
 
   function logout() {

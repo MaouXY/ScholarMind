@@ -12,11 +12,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -35,7 +37,11 @@ class ApiSecurityIntegrationTest {
     private static final long ADMIN_ID = 7710000000000000001L;
     private static final long STUDENT_A_ID = 7710000000000000002L;
     private static final long STUDENT_B_ID = 7710000000000000003L;
+    private static final long LOGIN_STUDENT_ID = 7710000000000000004L;
+    private static final long TEACHER_ID = 7710000000000000005L;
     private static final long PRIVATE_LITERATURE_ID = 7710000000000000010L;
+    /** 演示库统一密码 123456 的 BCrypt 哈希（与 sql/02 种子一致）。 */
+    private static final String SEED_PASSWORD_HASH = "$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi";
 
     @Autowired
     private MockMvc mockMvc;
@@ -138,6 +144,44 @@ class ApiSecurityIntegrationTest {
                 .andExpect(jsonPath("$.code").value(14101));
     }
 
+    @Test
+    @DisplayName("教师端已下线：教师账号登录返回 9004，用户端与管理端账号可正常登录")
+    void teacherLogin_isRejectedAfterTeacherModuleRemoval() throws Exception {
+        insertUser(TEACHER_ID, "it_api_teacher", UserRole.TEACHER, SEED_PASSWORD_HASH);
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"it_api_teacher\",\"password\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(9004))
+                .andExpect(jsonPath("$.message").value("教师端已下线，请使用用户端或管理端账号登录"));
+
+        insertUser(LOGIN_STUDENT_ID, "it_api_student_login", UserRole.STUDENT, SEED_PASSWORD_HASH);
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"it_api_student_login\",\"password\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.token").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("注册只开放用户端：提交 TEACHER 角色被参数校验拦截（HTTP 400 / code 400），STUDENT 可注册")
+    void register_rejectsTeacherRole() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"it_api_reg_teacher\",\"password\":\"123456\",\"nickname\":\"注册教师\",\"role\":\"TEACHER\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"it_api_reg_student\",\"password\":\"123456\",\"nickname\":\"注册用户\",\"role\":\"STUDENT\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.user.role").value("STUDENT"));
+    }
+
     private String bearer(long userId, UserRole role) {
         CurrentUser currentUser = CurrentUser.builder()
                 .principalId(userId)
@@ -149,10 +193,14 @@ class ApiSecurityIntegrationTest {
     }
 
     private void insertUser(long id, String username, UserRole role) {
+        insertUser(id, username, role, "$2b$10$integrationtestintegrationtestintegrationtestintegrationte");
+    }
+
+    private void insertUser(long id, String username, UserRole role, String passwordHash) {
         UserAccount account = new UserAccount();
         account.setId(id);
         account.setUsername(username);
-        account.setPasswordHash("$2b$10$integrationtestintegrationtestintegrationtestintegrationte");
+        account.setPasswordHash(passwordHash);
         account.setNickname(username);
         account.setEmail(username + "@it.local");
         account.setRole(role.name());

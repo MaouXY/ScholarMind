@@ -8,7 +8,6 @@ package com.maou.apptemplateapi.module.admin.dto;
 public record AdminOverviewResponse(
         Integer userTotal,
         Integer studentTotal,
-        Integer teacherTotal,
         Integer activeUserTotal,
         Integer literatureTotal,
         Integer publishedLiteratureTotal,

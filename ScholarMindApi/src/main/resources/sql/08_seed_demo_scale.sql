@@ -5,7 +5,7 @@
 -- 说明：新增用户的密码哈希与 02 号脚本一致，演示密码统一为 123456
 -- ============================================================================
 
--- 1) 用户扩充：新增 6 名学生与 2 名教师
+-- 1) 用户扩充：新增 6 名学生（原 teacher02/teacher03 在教师端下线后改为 student09/student10，见 09 脚本）
 INSERT INTO user_account (id, username, password_hash, nickname, email, role, status, deleted) VALUES
   (1000000000000000010, 'student02', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '陈晓', 'student02@scholarmind.local', 'STUDENT', 1, 0),
   (1000000000000000011, 'student03', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '刘洋', 'student03@scholarmind.local', 'STUDENT', 1, 0),
@@ -13,8 +13,8 @@ INSERT INTO user_account (id, username, password_hash, nickname, email, role, st
   (1000000000000000013, 'student05', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '孙倩', 'student05@scholarmind.local', 'STUDENT', 1, 0),
   (1000000000000000014, 'student06', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '周涛', 'student06@scholarmind.local', 'STUDENT', 1, 0),
   (1000000000000000015, 'student07', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '吴静', 'student07@scholarmind.local', 'STUDENT', 0, 0),
-  (1000000000000000016, 'teacher02', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '郑教授', 'teacher02@scholarmind.local', 'TEACHER', 1, 0),
-  (1000000000000000017, 'teacher03', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '王老师', 'teacher03@scholarmind.local', 'TEACHER', 1, 0)
+  (1000000000000000016, 'student09', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '郑楠', 'student09@scholarmind.local', 'STUDENT', 1, 0),
+  (1000000000000000017, 'student10', '$2b$10$kUsC1ZV2DZlUKr0w1GlCeeh05BLAInwjuvUqtNESb2x7q/Z7bSBdi', '王琳', 'student10@scholarmind.local', 'STUDENT', 1, 0)
 ON DUPLICATE KEY UPDATE
   nickname = VALUES(nickname),
   role = VALUES(role),

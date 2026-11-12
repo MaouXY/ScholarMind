@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Collection,
   Cpu,
   DataAnalysis,
   Management,
@@ -18,6 +17,7 @@ import {
 import AppSidebar from '@/components/AppSidebar.vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { displayRoleName } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,7 +26,7 @@ const authStore = useAuthStore()
 
 const menus = computed(() => [
   {
-    title: '学生空间',
+    title: '用户空间',
     items: [
       {
         label: '文献检索与阅读',
@@ -39,17 +39,6 @@ const menus = computed(() => [
         path: '/student/shelf',
         icon: Star,
         role: 'STUDENT',
-      },
-    ],
-  },
-  {
-    title: '教师空间',
-    items: [
-      {
-        label: '阅读指导台',
-        path: '/teacher/review',
-        icon: Collection,
-        role: 'TEACHER',
       },
     ],
   },
@@ -128,7 +117,7 @@ function handleLogout() {
           <el-dropdown>
             <span class="shell__user">
               {{ authStore.displayName }}
-              <small>{{ authStore.role }}</small>
+              <small>{{ displayRoleName(authStore.role) }}</small>
             </span>
             <template #dropdown>
               <el-dropdown-menu>

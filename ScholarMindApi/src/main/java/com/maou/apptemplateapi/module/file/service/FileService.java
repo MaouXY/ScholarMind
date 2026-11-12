@@ -17,6 +17,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
@@ -80,6 +81,27 @@ public class FileService {
                 metadata.getId(), currentUser.getId(), currentUser.getRoleCode(), bucket, objectKey,
                 file.getContentType(), file.getSize());
         return toResponse(metadata);
+    }
+
+    /**
+     * 删除 RustFS 中的对象本体。
+     *
+     * 仅由级联清理调用（例如管理端删除文献），失败只记日志不抛异常：
+     * 存储侧清理失败不应该阻塞业务数据删除，留下来的是孤对象，不影响功能。
+     */
+    public boolean deleteObject(String bucket, String objectKey) {
+        if (!StringUtils.hasText(bucket) || !StringUtils.hasText(objectKey)) {
+            return false;
+        }
+        try {
+            rustfsS3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(objectKey).build());
+            log.info("file object deleted, scenario=file-object-delete, bucket={}, objectKey={}", bucket, objectKey);
+            return true;
+        } catch (RuntimeException exception) {
+            log.warn("file object delete failed, scenario=file-object-delete, bucket={}, objectKey={}",
+                    bucket, objectKey, exception);
+            return false;
+        }
     }
 
     private void validateFile(MultipartFile file, CurrentUser currentUser) {

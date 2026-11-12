@@ -90,8 +90,7 @@ public class AdminOperationReportService {
         StringBuilder builder = new StringBuilder();
         builder.append("统计窗口: 最近 ").append(days).append(" 天\n");
         builder.append("用户: 总数=").append(overview.userTotal())
-                .append(", 学生=").append(overview.studentTotal())
-                .append(", 教师=").append(overview.teacherTotal())
+                .append(", 用户端=").append(overview.studentTotal())
                 .append(", 启用账号=").append(overview.activeUserTotal()).append('\n');
         builder.append("文献: 总数=").append(overview.literatureTotal())
                 .append(", 已发布=").append(overview.publishedLiteratureTotal())
@@ -225,8 +224,8 @@ public class AdminOperationReportService {
 
         List<StructuredOperationReport.Section> sections = new ArrayList<>();
         sections.add(new StructuredOperationReport.Section("一、平台整体规模",
-                "累计用户 %d 人（学生 %d、教师 %d），累计文献 %d 篇，已发布 %d 篇，文件资产 %d 个，总大小 %d 字节。"
-                        .formatted(overview.userTotal(), overview.studentTotal(), overview.teacherTotal(),
+                "累计用户 %d 人（用户端 %d 人），累计文献 %d 篇，已发布 %d 篇，文件资产 %d 个，总大小 %d 字节。"
+                        .formatted(overview.userTotal(), overview.studentTotal(),
                                 literatureTotal, overview.publishedLiteratureTotal(), overview.fileTotal(), fileSizeBytesAsLong(overview))));
         sections.add(new StructuredOperationReport.Section("二、窗口内增长与阅读活跃度",
                 "最近 %d 天新增用户 %d 人、新增文献 %d 篇，产生阅读事件 %d 次、问答 %d 次、AI 任务 %d 次。"
