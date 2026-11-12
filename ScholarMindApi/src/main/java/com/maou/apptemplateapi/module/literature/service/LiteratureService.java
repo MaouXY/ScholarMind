@@ -16,6 +16,7 @@ import com.maou.apptemplateapi.module.literature.dto.LiteratureReviewRequest;
 import com.maou.apptemplateapi.module.literature.entity.Literature;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureCategory;
 import com.maou.apptemplateapi.module.literature.event.LiteratureIndexRequestedEvent;
+import com.maou.apptemplateapi.module.literature.event.LiteratureSummaryRequestedEvent;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureCategoryMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
 import lombok.RequiredArgsConstructor;
@@ -223,6 +224,9 @@ public class LiteratureService {
         // P3-1：审核通过后自动重建索引，管理员不必再手动点「重建索引」；事件在事务提交后才执行
         eventPublisher.publishEvent(new LiteratureIndexRequestedEvent(
                 id, admin.getId(), LiteratureIndexRequestedEvent.TRIGGER_PUBLISH));
+        // 客户 2026-11-12 确认：摘要改由审核通过时顺带生成，详情页不再提供「生成摘要」按钮
+        eventPublisher.publishEvent(new LiteratureSummaryRequestedEvent(
+                id, admin.getId(), admin.getOrganizationId(), LiteratureSummaryRequestedEvent.TRIGGER_PUBLISH));
         return toResponse(literatureMapper.selectById(id), categoryName(literature.getCategoryId()));
     }
 

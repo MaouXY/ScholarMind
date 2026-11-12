@@ -70,10 +70,33 @@ public class LiteratureAiService {
     public LiteratureSummaryResponse generateSummary(Long literatureId) {
         CurrentUser currentUser = CurrentUserProvider.require();
         Literature literature = literatureService.requireReadableLiterature(literatureId, currentUser, "literature-summary");
+        return doGenerateSummary(literature, currentUser.getId(), currentUser.getOrganizationId(), "literature-summary");
+    }
+
+    /**
+     * 审核通过后自动生成摘要（客户确认「审核通过时顺带生成」）。
+     *
+     * <p>与 {@link #generateSummary(Long)} 的差别只有两点：不读 SecurityContext（operatorId 由监听器传入），
+     * 以及不校验可读性——审核流程本身已确认过操作人是管理员，此时文献刚变成 PUBLISHED。
+     *
+     * <p>不吞异常：本方法带 {@code @Transactional}，内部 {@code catch} 已把状态置为 FAILED 并抛出
+     * {@code AI_SERVICE_UNAVAILABLE}；监听器在外面兜住，避免把异常抛回审核请求线程。
+     */
+    @Transactional
+    public LiteratureSummaryResponse generateSummaryAutomatically(Long literatureId, Long operatorId, Long organizationId) {
+        Literature literature = literatureService.requireLiterature(literatureId, "literature-summary-auto");
+        return doGenerateSummary(literature, operatorId, organizationId, "literature-summary-auto");
+    }
+
+    private LiteratureSummaryResponse doGenerateSummary(Literature literature,
+                                                        Long operatorId,
+                                                        Long organizationId,
+                                                        String scenario) {
+        Long literatureId = literature.getId();
         String source = literatureIndexService.buildIndexContent(literature);
         try {
             StructuredAiResult<StructuredLiteratureSummary> result = structuredAiService.generate(new StructuredAiSpec<>(
-                    currentUser.getOrganizationId(),
+                    organizationId,
                     TASK_SUMMARY,
                     BIZ_TYPE_LITERATURE,
                     literatureId,
@@ -90,14 +113,14 @@ public class LiteratureAiService {
             literature.setSummaryStatus(result.fallbackUsed() ? "FALLBACK" : "SUCCESS");
             literature.setSummaryUpdatedAt(LocalDateTime.now());
             literatureMapper.updateById(literature);
-            log.info("literature summary generated, scenario=literature-summary, literatureId={}, userId={}, taskId={}, attemptCount={}, repaired={}, fallbackUsed={}",
-                    literatureId, currentUser.getId(), result.taskId(), result.attemptCount(), result.repaired(), result.fallbackUsed());
+            log.info("literature summary generated, scenario={}, literatureId={}, userId={}, taskId={}, attemptCount={}, repaired={}, fallbackUsed={}",
+                    scenario, literatureId, operatorId, result.taskId(), result.attemptCount(), result.repaired(), result.fallbackUsed());
             return new LiteratureSummaryResponse(literatureId, summary, literature.getSummaryStatus(), literature.getSummaryUpdatedAt());
         } catch (RuntimeException exception) {
             literature.setSummaryStatus("FAILED");
             literatureMapper.updateById(literature);
-            log.error("literature summary failed, scenario=literature-summary, literatureId={}, userId={}",
-                    literatureId, currentUser.getId(), exception);
+            log.error("literature summary failed, scenario={}, literatureId={}, userId={}",
+                    scenario, literatureId, operatorId, exception);
             throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
     }

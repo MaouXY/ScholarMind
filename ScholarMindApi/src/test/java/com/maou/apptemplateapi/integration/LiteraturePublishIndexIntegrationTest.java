@@ -34,6 +34,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -108,7 +109,7 @@ class LiteraturePublishIndexIntegrationTest {
     }
 
     @Test
-    @DisplayName("审核通过后自动重建索引：无需前端点击，分块直接落库且 parseStatus=INDEXED")
+    @DisplayName("审核通过后自动重建索引并顺带生成摘要：无需前端点击，分块与摘要直接落库")
     void approve_triggersIndexRebuildAutomatically() {
         authenticate(uploaderId, UserRole.STUDENT);
         LiteratureResponse created = literatureService.create(new LiteratureRequest(
@@ -118,6 +119,7 @@ class LiteraturePublishIndexIntegrationTest {
                 "自动重建索引,RRF,集成测试"));
         assertEquals("PENDING_REVIEW", created.status());
         assertTrue(chunksOf(created.id()).isEmpty(), "审核前不应有分块");
+        assertNull(literatureMapper.selectById(created.id()).getAiSummary(), "审核前不应有 AI 摘要");
 
         authenticate(adminId, UserRole.ADMIN);
         LiteratureResponse published = literatureService.approve(created.id());
@@ -131,6 +133,13 @@ class LiteraturePublishIndexIntegrationTest {
         assertNotNull(stored.getParseError(), "题录兜底时应写入兜底原因，便于排查");
         assertTrue(chunks.stream().allMatch(chunk -> "DB_ONLY".equals(chunk.getVectorStoreStatus())),
                 "Milvus 未启用时向量状态应为 DB_ONLY");
+
+        // 客户 2026-11-12 拍板：审核通过时顺带生成 AI 摘要。AiClient 是 mock（返回 null），
+        // 两次尝试都失败后走兜底摘要，因此这里是 FALLBACK 而不是 SUCCESS。
+        assertNotNull(stored.getAiSummary(), "审核通过后应自动写入 AI 摘要");
+        assertTrue(stored.getAiSummary().contains("background"), "兜底摘要也应是结构化 JSON");
+        assertNotNull(stored.getSummaryUpdatedAt(), "摘要生成时间不应为空");
+        assertEquals("FALLBACK", stored.getSummaryStatus(), "AI 输出不可用时应标记 FALLBACK");
     }
 
     // ---------------------------------------------------------------- 工具方法

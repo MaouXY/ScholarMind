@@ -154,6 +154,8 @@ const archiveQuery = reactive({
   keyword: '',
 })
 const deletingId = ref<Id | null>(null)
+/** 审核通过要等索引重建 + AI 摘要，按 id 记 loading 以免重复点击 */
+const approvingId = ref<Id | null>(null)
 
 const dashboardQuery = reactive({
   days: 14,
@@ -280,9 +282,12 @@ async function fetchKnowledge() {
 }
 
 async function approve(item: Literature) {
+  if (approvingId.value) return
+  approvingId.value = item.id
   try {
+    // 审核通过会同步触发索引重建与 AI 摘要生成，耗时可达数十秒，按钮需要 loading 防止重复提交
     await approveLiterature(item.id)
-    ElMessage.success('文献已发布')
+    ElMessage.success('文献已发布，索引与 AI 摘要已自动生成')
     await Promise.all([fetchPending(), fetchDashboard()])
   } catch (error) {
     console.error(
@@ -290,6 +295,8 @@ async function approve(item: Literature) {
       item.id,
       error,
     )
+  } finally {
+    approvingId.value = null
   }
 }
 
@@ -483,8 +490,23 @@ onMounted(async () => {
               </div>
             </div>
             <div class="approval-actions">
-              <el-button :icon="CircleCheck" type="success" @click="approve(item)">通过</el-button>
-              <el-button type="danger" plain @click="reject(item)">退回</el-button>
+              <el-button
+                :icon="CircleCheck"
+                type="success"
+                :loading="approvingId === item.id"
+                :disabled="Boolean(approvingId) && approvingId !== item.id"
+                @click="approve(item)"
+              >
+                {{ approvingId === item.id ? '正在生成摘要…' : '通过' }}
+              </el-button>
+              <el-button
+                type="danger"
+                plain
+                :disabled="Boolean(approvingId)"
+                @click="reject(item)"
+              >
+                退回
+              </el-button>
             </div>
           </article>
           <el-empty v-if="!pending.length && !loadingPending" description="暂无待审核文献" />

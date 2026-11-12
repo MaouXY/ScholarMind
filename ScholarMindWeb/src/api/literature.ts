@@ -212,7 +212,11 @@ export function listPendingLiteratures(params: { page: number; size: number }) {
 }
 
 export function approveLiterature(id: Id) {
-  return request.post<never, Literature>(`/admin/literatures/${id}/approve`)
+  // 审核通过会同步触发索引重建与 AI 摘要生成（P3-1 + 摘要自动生成），耗时可达秒级甚至数十秒，
+  // 沿用默认 15 秒会在 AI 慢时误报超时。
+  return request.post<never, Literature>(`/admin/literatures/${id}/approve`, undefined, {
+    timeout: AI_REQUEST_TIMEOUT,
+  })
 }
 
 export function rejectLiterature(id: Id, reason: string) {
