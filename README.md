@@ -21,7 +21,7 @@ ScholarMind/
 │  └─ src/test/java/               单元测试（AI 调用重试、引用格式化、上下文装配）
 ├─ ScholarMindWeb/                 前端（Vue 3 + Vite，开发端口 5173）
 │  └─ src/{api,types,views,layouts,styles,router,stores,utils}
-├─ doc/                            项目文档（01 调研 / 02 分析与设计 / 03 规划 / 04 第三至五阶段实现说明）
+├─ doc/                            项目文档（01~10 见第九节；html/ 为可交互图形）
 └─ scripts/seed-demo-files.ps1     演示数据：为已发布文献上传并绑定原文文件（需 RustFS 在线）
 ```
 
@@ -209,3 +209,18 @@ npm run build           # 类型门禁 + vite build
 | `doc/...-05-设计图表.md` | Mermaid 图表：分层架构、功能模块、用例图、ER 图、状态图、6 张时序图、活动图、部署图 |
 | `doc/...-06-系统截图清单.md` | 毕业论文配图清单：截图前准备、按章节的 40 张截图要点与命名、答辩演示组合建议 |
 | `doc/...-07-系统验收流程.md` | 验收流程：环境与数据准备、启动健康检查、A~H 功能验收、X1~X16 异常与边界、Z1~Z6 自动化验收、结论签字表、排查手册与彩排基线 |
+| `doc/...-09-客户完善需求与改造清单.md` | 客户第一版《完善需求》逐条拆解、P0~P3 排期、涉及文件与待确认问题 |
+| `doc/...-10-完善需求改版对照与改造计划.md` | 2026-10-31《完善需求（改）》差异对照：删除教师端、三种检索可区分、用户端改称 |
+
+### 可交互图形（`doc/html/`）
+
+浏览器直接打开 `doc/html/index.html` 即可，四张图为独立单文件 HTML，支持缩放、拖拽、视图切换与 PNG/SVG 导出：
+
+| 文件 | 内容 |
+| --- | --- |
+| `doc/html/01-新架构.html` | 改版后架构：用户端/管理端 SPA、Spring Boot API、检索编排、AI 能力、MySQL/Milvus/RustFS/Ark |
+| `doc/html/02-新业务流程.html` | 用户端 6 环节与管理端 6 环节，含上传审核闭环与三种检索模式说明 |
+| `doc/html/03-改造计划.html` | 三批改造的路线图：第 1 批已交付，第 2 批 A/B/C，第 3 批收尾 |
+| `doc/html/04-页面功能地图.html` | 用户端 5 页与管理端 6 页的功能与跳转关系，标注代码来源 |
+
+> 图内「来源」徽标可点击跳转到 GitHub 对应代码行；图形由 Archify 生成，全部通过 validate / deliver / check / browser-check 四道校验。

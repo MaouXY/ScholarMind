@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScholarMind 设计图表（可交互）</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a2e;
+    --panel-hover: #1a2340;
+    --line: #26304d;
+    --text: #e8edf9;
+    --muted: #8d9ab8;
+    --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(1200px 600px at 20% -10%, #16224a 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 15px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    padding: 56px 32px 72px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 8px; letter-spacing: .3px; }
+  .sub { color: var(--muted); margin: 0 0 36px; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+  a.card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 22px 18px;
+    transition: background .18s, border-color .18s, transform .18s;
+  }
+  a.card:hover { background: var(--panel-hover); border-color: #3a4a72; transform: translateY(-2px); }
+  .no { color: var(--accent); font-size: 12px; letter-spacing: 1.5px; font-weight: 600; }
+  .name { font-size: 17px; font-weight: 600; margin: 6px 0 8px; }
+  .desc { color: var(--muted); font-size: 13.5px; margin: 0; }
+  .tip { margin-top: 34px; padding: 14px 18px; border-left: 3px solid var(--accent); background: #101830; border-radius: 6px; color: var(--muted); font-size: 13.5px; }
+  .tip b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ScholarMind 设计图表（可交互）</h1>
+  <p class="sub">按 2026-10-31《完善需求（改）》改版后的方案绘制：删除教师端，仅保留用户端与管理端。四张图均为独立 HTML，可缩放、拖拽、切换视图与导出。</p>
+
+  <div class="grid">
+    <a class="card" href="01-新架构.html">
+      <div class="no">01 · ARCHITECTURE</div>
+      <div class="name">新架构总览</div>
+      <p class="desc">用户端 / 管理端 SPA、Spring Boot API、检索编排（BM25 + 向量 + RRF）、AI 能力，以及 MySQL / Milvus / RustFS / 火山方舟 Ark。</p>
+    </a>
+
+    <a class="card" href="02-新业务流程.html">
+      <div class="no">02 · WORKFLOW</div>
+      <div class="name">新业务流程</div>
+      <p class="desc">用户端 6 环节 + 管理端 6 环节，含上传审核闭环（提交审核 → 通过后公开）与三种检索模式说明。</p>
+    </a>
+
+    <a class="card" href="03-改造计划.html">
+      <div class="no">03 · ROADMAP</div>
+      <div class="name">改造计划路线图</div>
+      <p class="desc">第 1 批已交付；第 2 批 A 教师端下线、B 内容治理、C 演示数据；第 3 批收尾验收。附待定方案与验收口径。</p>
+    </a>
+
+    <a class="card" href="04-页面功能地图.html">
+      <div class="no">04 · PAGE MAP</div>
+      <div class="name">页面功能地图</div>
+      <p class="desc">用户端 5 页与管理端 6 页的功能与跳转关系，标注每页的数据来源文件。</p>
+    </a>
+  </div>
+
+  <p class="tip">
+    <b>阅读提示：</b>图内的「来源」徽标可点击跳转到 GitHub 对应代码行；右上角可切换深色 / 浅色主题与导出 PNG、SVG。
+    对应的文字版说明见 <code>doc/AI图书馆文献检索与阅读助手-05-设计图表.md</code> 与 <code>-10-完善需求改版对照与改造计划.md</code>。
+  </p>
+</div>
+</body>
+</html>
