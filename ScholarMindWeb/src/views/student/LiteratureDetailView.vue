@@ -474,21 +474,7 @@ onMounted(async () => {
 
 <template>
   <section class="library-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">Literature Detail</p>
-        <h2>一页读懂元数据、AI 摘要与索引状态</h2>
-        <p>
-          文献详情页集中呈现题录信息、AI
-          摘要与阅读记录，并作为进入在线阅读的统一入口。
-        </p>
-      </div>
-      <div class="hero-orbit" aria-hidden="true">
-        <span>Detail</span>
-        <span>Read</span>
-        <span>Cite</span>
-      </div>
-    </div>
+
 
     <section v-if="loading" class="glass-panel" aria-label="文献详情加载中">
       <el-skeleton :rows="1" animated />
@@ -624,7 +610,7 @@ onMounted(async () => {
       <section class="glass-panel" aria-label="引用与下载">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Citation &amp; Download</p>
+
             <h3>引用与下载</h3>
           </div>
           <div class="detail-actions">
@@ -730,7 +716,7 @@ onMounted(async () => {
           <section class="citation-records" aria-label="已收藏引用">
             <div class="panel-heading">
               <div>
-                <p class="panel__eyebrow">Collected Citations</p>
+
                 <h3>本篇已收藏引用</h3>
               </div>
               <div class="detail-actions">
@@ -785,7 +771,7 @@ onMounted(async () => {
         <section class="glass-panel" aria-label="AI 摘要">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">AI Summary</p>
+
               <h3>AI 摘要</h3>
             </div>
             <div class="detail-actions">
@@ -798,7 +784,7 @@ onMounted(async () => {
         <section class="glass-panel" aria-label="解析摘要">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Abstract</p>
+
               <h3>摘要原文</h3>
             </div>
             <span>{{ abstractParagraphs.length }} 段</span>
@@ -814,7 +800,7 @@ onMounted(async () => {
         <section class="glass-panel" aria-label="阅读与文献状态">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Reading &amp; Status</p>
+
               <h3>阅读与文献状态</h3>
             </div>
           </div>
@@ -880,7 +866,7 @@ onMounted(async () => {
         <section class="glass-panel" aria-label="最近笔记">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Recent Notes</p>
+
               <h3>最近阅读笔记</h3>
             </div>
             <el-button :icon="Reading" plain @click="openReader"

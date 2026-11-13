@@ -190,28 +190,19 @@ onMounted(() => {
 
 <template>
   <section class="admin-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">Operation Insight</p>
-        <h2>用关键词热度和运营报告判断平台走势</h2>
-        <p>
-          运营分析页汇总热门关键词的文献标签、检索与问答热度，并支持一键生成包含亮点、风险与建议的运营分析报告，便于汇报与复盘。
-        </p>
-      </div>
-      <div class="hero-stats">
+    <div class="shelf-summary"><div class="hero-stats">
         <span>
           <strong>{{ dashboard?.overview.userTotal ?? 0 }}</strong>平台用户
         </span>
         <span>
           <strong>{{ dashboard?.overview.literatureTotal ?? 0 }}</strong>文献总量
         </span>
-      </div>
-    </div>
+      </div></div>
 
     <section class="glass-panel chart-panel" v-loading="loadingOverview">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Platform Overview</p>
+
           <h3>平台概览</h3>
         </div>
         <el-button
@@ -234,7 +225,7 @@ onMounted(() => {
     <section class="glass-panel chart-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Hot Keywords</p>
+
           <h3>热门关键词</h3>
         </div>
         <div class="admin-filter-form">
@@ -283,7 +274,7 @@ onMounted(() => {
     <section class="glass-panel chart-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Operation Report</p>
+
           <h3>运营分析报告</h3>
         </div>
         <div class="admin-filter-form">

@@ -15,6 +15,7 @@ import {
 } from '@element-plus/icons-vue'
 
 import AppSidebar from '@/components/AppSidebar.vue'
+import RequestFailures from '@/components/RequestFailures.vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { displayRoleName } from '@/utils/format'
@@ -29,7 +30,7 @@ const menus = computed(() => [
     title: '用户空间',
     items: [
       {
-        label: '文献检索与阅读',
+        label: '文献库',
         path: '/student/library',
         icon: Reading,
         role: 'STUDENT',
@@ -102,14 +103,13 @@ function handleLogout() {
     <div class="shell__main">
       <header class="shell__header">
         <div class="shell__header-left">
-          <el-button class="sidebar-toggle-btn" plain @click="appStore.toggleSidebar()">
+          <el-button class="sidebar-toggle-btn" plain aria-label="展开或收起导航" title="展开或收起导航" @click="appStore.toggleSidebar()">
             <el-icon>
               <Expand v-if="appStore.sidebarCollapsed" />
               <Fold v-else />
             </el-icon>
           </el-button>
           <div>
-            <p class="shell__eyebrow">ScholarMind Spatial Workspace</p>
             <h1>{{ route.meta.title }}</h1>
           </div>
         </div>
@@ -130,6 +130,7 @@ function handleLogout() {
         </div>
       </header>
       <main class="shell__content">
+        <RequestFailures />
         <router-view />
       </main>
     </div>

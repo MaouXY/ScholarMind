@@ -1,66 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 
 import { getAdminDashboard } from '@/api/admin'
 import { displayRoleName, localizeDimensionName } from '@/utils/format'
+import { emptyDashboard } from '@/utils/dashboard'
 import type { AdminDashboard, AdminTrendPoint } from '@/types/admin'
 
-const demoDashboard: AdminDashboard = {
-  overview: {
-    userTotal: 36,
-    studentTotal: 35,
-    activeUserTotal: 24,
-    literatureTotal: 128,
-    publishedLiteratureTotal: 94,
-    pendingReviewTotal: 9,
-    privateLiteratureTotal: 25,
-    fileTotal: 116,
-    fileSizeBytes: 1024 * 1024 * 384,
-    favoriteTotal: 216,
-    readingHistoryTotal: 346,
-    readingNoteTotal: 142,
-    qaTotal: 88,
-    ragDocumentTotal: 18,
-    aiTaskTotal: 126,
-    aiTaskSuccessTotal: 116,
-    aiTaskFailedTotal: 6,
-    aiSuccessRate: 0.92,
-    avgAiDurationMs: 1840,
-  },
-  trends: [
-    { date: '06-01', newUsers: 5, newLiteratures: 8, readingEvents: 42, qaEvents: 9, aiTasks: 13 },
-    { date: '06-02', newUsers: 3, newLiteratures: 6, readingEvents: 56, qaEvents: 12, aiTasks: 16 },
-    { date: '06-03', newUsers: 7, newLiteratures: 9, readingEvents: 72, qaEvents: 18, aiTasks: 22 },
-    { date: '06-04', newUsers: 4, newLiteratures: 5, readingEvents: 64, qaEvents: 15, aiTasks: 18 },
-    { date: '06-05', newUsers: 9, newLiteratures: 11, readingEvents: 88, qaEvents: 24, aiTasks: 31 },
-    { date: '06-06', newUsers: 2, newLiteratures: 4, readingEvents: 51, qaEvents: 10, aiTasks: 14 },
-  ],
-  literatureStatusStats: [
-    { name: 'PUBLISHED', count: 94 },
-    { name: 'PENDING_REVIEW', count: 9 },
-    { name: 'DRAFT', count: 18 },
-    { name: 'REJECTED', count: 7 },
-  ],
-  literatureCategoryStats: [
-    { name: '信息检索', count: 36 },
-    { name: '人工智能', count: 31 },
-    { name: '数字图书馆', count: 26 },
-    { name: '推荐系统', count: 22 },
-  ],
-  userRoleStats: [
-    { name: 'STUDENT', count: 35 },
-    { name: 'ADMIN', count: 1 },
-  ],
-  hotLiteratures: [],
-  activeUsers: [],
-  aiTaskHealth: [
-    { taskType: 'LITERATURE_QA', total: 88, success: 82, failed: 4, timeout: 2, successRate: 0.93, avgDurationMs: 1620 },
-    { taskType: 'SUMMARY', total: 38, success: 34, failed: 2, timeout: 2, successRate: 0.89, avgDurationMs: 2100 },
-  ],
-}
-
-const dashboard = ref<AdminDashboard>(demoDashboard)
+const dashboard = ref<AdminDashboard>(emptyDashboard())
+const failed = ref(false)
+const hasReadingActivity = computed(() => dashboard.value.trends.some((item) => item.readingEvents > 0))
 const loading = ref(false)
 const query = reactive({
   days: 14,
@@ -84,7 +33,7 @@ const maxCategory = computed(() =>
 )
 
 function barHeight(item: AdminTrendPoint) {
-  return Math.max(8, Math.round(((item.readingEvents || 0) / maxReading.value) * 100))
+  return Math.round(((item.readingEvents || 0) / maxReading.value) * 160)
 }
 
 function percent(value: number, max: number) {
@@ -93,6 +42,7 @@ function percent(value: number, max: number) {
 
 async function fetchDashboard() {
   loading.value = true
+  failed.value = false
   try {
     dashboard.value = await getAdminDashboard(query)
   } catch (error) {
@@ -102,30 +52,24 @@ async function fetchDashboard() {
       query.limit,
       error,
     )
-    dashboard.value = demoDashboard
+    failed.value = true
+    dashboard.value = emptyDashboard()
   } finally {
     loading.value = false
   }
 }
 
 onMounted(fetchDashboard)
+watch(() => query.days, fetchDashboard)
 </script>
 
 <template>
   <section class="analytics-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">Stage 5 Analytics Overview</p>
-        <h2>观察文献、阅读、RAG 与 AI 任务的运行状态</h2>
-        <p>
-          数据总览页从后台统计接口同步关键指标，帮助管理员快速判断文献增长、阅读活跃与内容沉淀情况。
-        </p>
-      </div>
-    </div>
+
 
     <section class="admin-control-strip glass-panel">
       <div>
-        <p class="panel__eyebrow">Data Window</p>
+
         <h3>统计窗口</h3>
       </div>
       <el-segmented
@@ -141,7 +85,10 @@ onMounted(fetchDashboard)
       </el-button>
     </section>
 
-    <div class="kpi-grid kpi-grid--three">
+    <el-empty v-if="failed" description="统计数据加载失败">
+      <el-button @click="fetchDashboard">重试</el-button>
+    </el-empty>
+    <div v-else class="kpi-grid kpi-grid--three" v-loading="loading">
       <article v-for="item in kpis" :key="item.label" class="screen-kpi">
         <p>{{ item.label }}</p>
         <strong>{{ item.value }}</strong>
@@ -149,19 +96,20 @@ onMounted(fetchDashboard)
       </article>
     </div>
 
-    <div class="analytics-grid analytics-grid--stage5">
+    <div v-if="!failed" class="analytics-grid analytics-grid--stage5">
       <section class="glass-panel chart-panel">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Reading Trend</p>
-            <h3>阅读与 AI 趋势</h3>
+
+            <h3>阅读趋势</h3>
           </div>
         </div>
-        <div class="bar-chart" aria-label="阅读与 AI 趋势">
+        <el-empty v-if="!hasReadingActivity" description="所选时间内暂无阅读活动" />
+        <div v-else class="bar-chart" aria-label="每日阅读量">
           <div v-for="item in dashboard.trends" :key="item.date" class="bar-chart__item">
-            <span class="bar-chart__bar" :style="{ height: `${barHeight(item)}%` }" />
+            <span class="bar-chart__bar" :style="{ height: `${barHeight(item)}px` }" />
             <strong>{{ item.readingEvents }}</strong>
-            <small>{{ item.date }}</small>
+            <small>{{ item.date.slice(5) }}</small>
           </div>
         </div>
         <div class="trend-summary">
@@ -174,7 +122,7 @@ onMounted(fetchDashboard)
       <section class="glass-panel chart-panel">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Domain Heat</p>
+
             <h3>热门研究方向</h3>
           </div>
         </div>
@@ -190,7 +138,7 @@ onMounted(fetchDashboard)
       <section class="glass-panel chart-panel">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">User Roles</p>
+
             <h3>用户角色分布</h3>
           </div>
         </div>
@@ -204,14 +152,14 @@ onMounted(fetchDashboard)
       <section class="glass-panel ops-panel">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Operational Signals</p>
+
             <h3>平台运行信号</h3>
           </div>
         </div>
         <ul class="signal-list">
-          <li><strong>检索服务</strong><span>{{ overview.literatureTotal }} 篇文献可参与检索</span></li>
+          <li><strong>公开文献</strong><span>{{ overview.publishedLiteratureTotal }} 篇已发布文献</span></li>
           <li><strong>审核流转</strong><span>{{ overview.pendingReviewTotal }} 篇公开文献等待处理</span></li>
-          <li><strong>阅读质量</strong><span>{{ overview.favoriteTotal }} 次收藏，{{ overview.readingNoteTotal }} 条笔记</span></li>
+        <li><strong>阅读沉淀</strong><span>{{ overview.readingNoteTotal }} 条笔记，{{ overview.qaTotal }} 条问答</span></li>
         </ul>
       </section>
     </div>

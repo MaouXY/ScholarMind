@@ -221,24 +221,15 @@ onMounted(() => {
 
 <template>
   <section class="admin-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">Category Governance</p>
-        <h2>维护文献分类体系与展示顺序</h2>
-        <p>
-          分类管理用于统一文献的一级方向与子方向：新增、编辑、排序、启停与删除都会直接影响文献检索和统计维度的归类结果。
-        </p>
-      </div>
-      <div class="hero-stats">
+    <div class="shelf-summary"><div class="hero-stats">
         <span><strong>{{ categories.length }}</strong>分类总数</span>
         <span><strong>{{ enabledCount }}</strong>启用中</span>
-      </div>
-    </div>
+      </div></div>
 
     <section class="glass-panel admin-table-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Category Tree</p>
+
           <h3>分类列表</h3>
         </div>
         <div class="admin-filter-form">

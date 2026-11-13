@@ -39,6 +39,7 @@ const activeAnswer = ref<LiteratureQuestionResult | null>(null)
 const loading = ref(false)
 const asking = ref(false)
 const askSlow = ref(false)
+const askError = ref('')
 const historyLoading = ref(false)
 const loadFailed = ref(false)
 
@@ -157,6 +158,7 @@ async function askQuestion() {
 
   asking.value = true
   askSlow.value = false
+  askError.value = ''
   clearAskSlowTimer()
   askSlowTimer = setTimeout(() => {
     askSlow.value = true
@@ -173,6 +175,8 @@ async function askQuestion() {
     ]
     ElMessage.success('RAG 问答已生成')
   } catch (error) {
+    const failure = error as { message?: string; response?: { data?: { message?: string } } } | null
+    askError.value = failure?.response?.data?.message || failure?.message || '回答生成失败，请稍后重试'
     console.error(
       'literature question failed, scenario=literature-rag-question, literatureId=%s, question=%s, limit=%s',
       id,
@@ -211,20 +215,7 @@ onMounted(async () => {
 
 <template>
   <section class="library-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">RAG Question Answering</p>
-        <h2>用检索到的原文片段回答论文问题</h2>
-        <p>
-          问答页围绕当前文献发起 RAG 提问，回答与引用片段一一对应，并保留历史问答记录。
-        </p>
-      </div>
-      <div class="hero-orbit" aria-hidden="true">
-        <span>Ask</span>
-        <span>Cite</span>
-        <span>Read</span>
-      </div>
-    </div>
+
 
     <section v-if="loading" class="glass-panel" aria-label="问答页加载中">
       <el-skeleton :rows="8" animated />
@@ -272,7 +263,7 @@ onMounted(async () => {
         <aside class="glass-panel rag-command-panel" aria-label="提问">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Ask With Evidence</p>
+
               <h3>提问</h3>
             </div>
             <el-tag effect="plain">引用上限 {{ qaForm.limit }}</el-tag>
@@ -300,10 +291,17 @@ onMounted(async () => {
           <p v-if="askSlow" class="reader-leaf__note">
             AI 正在生成，请稍候…
           </p>
+          <el-alert
+            v-if="askError"
+            :title="askError"
+            type="error"
+            :closable="false"
+            show-icon
+          />
           <section class="rag-search-box">
             <div class="panel-heading">
               <div>
-                <p class="panel__eyebrow">Suggested Questions</p>
+
                 <h3>推荐问题</h3>
               </div>
             </div>
@@ -323,7 +321,7 @@ onMounted(async () => {
         <section class="glass-panel" aria-label="回答">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Answer</p>
+
               <h3>回答</h3>
             </div>
             <el-tag v-if="activeAnswer?.createdAt" effect="plain">
@@ -342,7 +340,7 @@ onMounted(async () => {
           <section class="compare-panel answer-references" aria-label="引用片段">
             <div class="panel-heading">
               <div>
-                <p class="panel__eyebrow">References</p>
+
                 <h3>引用片段</h3>
               </div>
               <span>{{ references.length }} 条</span>
@@ -379,7 +377,7 @@ onMounted(async () => {
         <section class="qa-history-panel" aria-label="历史问答">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">QA Memory</p>
+
               <h3>历史问答</h3>
             </div>
             <el-button :icon="Search" plain :loading="historyLoading" @click="fetchQaHistory">

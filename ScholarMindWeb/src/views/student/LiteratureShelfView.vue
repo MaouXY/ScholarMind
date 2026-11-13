@@ -310,16 +310,7 @@ onMounted(async () => {
 
 <template>
   <section class="library-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">My Reading Shelf</p>
-        <h2>我的书房：收藏、阅读历史与阅读笔记集中管理</h2>
-        <p>
-          收藏夹沉淀感兴趣的文献，阅读历史记录每次停留的页码与时长，阅读笔记汇总手动批注与
-          AI 解析结果，三处数据都可一键回到原文继续阅读。
-        </p>
-      </div>
-      <div class="hero-stats">
+    <div class="shelf-summary"><div class="hero-stats">
         <span>
           <strong>{{ favoritesTotal }}</strong>
           收藏文献
@@ -332,8 +323,7 @@ onMounted(async () => {
           <strong>{{ notesTotal }}</strong>
           阅读笔记
         </span>
-      </div>
-    </div>
+      </div></div>
 
     <section class="glass-panel" aria-label="我的书房">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">

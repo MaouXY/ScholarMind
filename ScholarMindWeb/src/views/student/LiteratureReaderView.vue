@@ -32,7 +32,7 @@ import {
   updateReadingNote,
 } from '@/api/literature'
 import { downloadReadingNotes } from '@/utils/download'
-import { displayCategoryName } from '@/utils/format'
+import { displayCategoryName, displayLanguage } from '@/utils/format'
 import type {
   Id,
   Literature,
@@ -641,20 +641,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="library-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">Immersive Reader</p>
-        <h2>在线阅读舱：分块正文、进度与批注一起沉淀</h2>
-        <p>
-          阅读页直接渲染后端解析出的正文分块，可跳转目录、按屏加载，进度按所处分块实时换算并沉淀为阅读历史与笔记。
-        </p>
-      </div>
-      <div class="hero-orbit" aria-hidden="true">
-        <span>Chunk</span>
-        <span>Note</span>
-        <span>Save</span>
-      </div>
-    </div>
+
 
     <section v-if="loading" class="reader-surface" aria-label="阅读页加载中">
       <el-skeleton :rows="10" animated />
@@ -717,18 +704,18 @@ onBeforeUnmount(() => {
               <span>{{ literature.author || '未知作者' }}</span>
               <span>{{ literature.source || '未填写来源' }}</span>
               <span>{{ literature.publishYear || '年份未知' }}</span>
-              <span>{{ literature.language || '语言未填写' }}</span>
+              <span>{{ displayLanguage(literature.language) }}</span>
               <span>{{ statusLabel(literature.status) }}</span>
             </div>
 
             <section class="parse-status-grid">
               <div>
-                <span>当前分块</span>
-                <strong>{{ hasChunks ? `#${currentChunk}` : '—' }}</strong>
+                <span>阅读位置</span>
+                <strong>{{ hasChunks ? `第 ${currentChunk + 1} 段` : '—' }}</strong>
               </div>
               <div>
-                <span>分块总数</span>
-                <strong>{{ totalChunks }}</strong>
+                <span>正文段落</span>
+                <strong>{{ totalChunks }} 段</strong>
               </div>
               <div>
                 <span>阅读进度</span>
@@ -744,19 +731,12 @@ onBeforeUnmount(() => {
               </div>
             </section>
 
-            <section class="reader-section" v-if="literature.abstractText">
-              <h3>摘要</h3>
+            <details class="reader-section" v-if="literature.abstractText">
+              <summary>摘要</summary>
               <p v-for="(paragraph, index) in abstractBlocks" :key="index">
                 {{ paragraph }}
               </p>
-            </section>
-
-            <section class="reader-section">
-              <h3>AI 摘要</h3>
-              <p>
-                {{ literature.aiSummary || '暂无 AI 摘要' }}
-              </p>
-            </section>
+            </details>
 
             <section class="keyword-ribbon" v-if="keywordTokens.length">
               <span v-for="token in keywordTokens" :key="token">{{
@@ -769,7 +749,7 @@ onBeforeUnmount(() => {
               <p class="reader-leaf__note">
                 {{
                   hasChunks
-                    ? `共 ${totalChunks} 个分块，当前显示前 ${visibleChunks.length} 个，可使用右侧目录跳转或点击「加载更多」。`
+                    ? `共 ${totalChunks} 段`
                     : emptyChunkHint
                 }}
               </p>
@@ -791,13 +771,7 @@ onBeforeUnmount(() => {
               >
                 <header class="chunk-card__head">
                   <div class="chunk-card__meta">
-                    <strong>#{{ item.chunkIndex }}</strong>
-                    <span v-if="item.pageNo !== null"
-                      >第 {{ item.pageNo }} 页</span
-                    >
-                    <span v-if="item.tokenCount !== null"
-                      >{{ item.tokenCount }} tokens</span
-                    >
+                    <strong>第 {{ item.chunkIndex + 1 }} 段</strong>
                   </div>
                   <el-tag
                     v-if="item.chunkIndex === currentChunk"
@@ -835,8 +809,7 @@ onBeforeUnmount(() => {
 
             <section v-if="hasChunks" class="chunk-pager">
               <div class="chunk-pager__info">
-                已显示 {{ visibleChunks.length }} / {{ totalChunks }} 块（第
-                {{ chunkPage }} / {{ chunkTotalPages }} 屏）
+                已显示 {{ visibleChunks.length }} / {{ totalChunks }} 段
               </div>
               <div class="chunk-pager__actions">
                 <el-button
@@ -867,7 +840,7 @@ onBeforeUnmount(() => {
             <section class="reader-section" v-if="literature.fileUrl">
               <h3>原文文件</h3>
               <div class="file-info">
-                <span>{{ literature.fileType || '未知类型' }}</span>
+                <span>{{ literature.fileType === 'application/pdf' ? 'PDF' : '原文附件' }}</span>
                 <a :href="literature.fileUrl" target="_blank" rel="noreferrer">
                   <el-button :icon="Document" plain>打开原文</el-button>
                 </a>
@@ -880,7 +853,7 @@ onBeforeUnmount(() => {
             <section class="reading-progress-panel">
               <div class="panel-heading">
                 <div>
-                  <p class="panel__eyebrow">Reading History</p>
+
                   <h3>阅读进度</h3>
                 </div>
                 <span>{{ progressPercent }}%</span>
@@ -916,10 +889,10 @@ onBeforeUnmount(() => {
           <aside class="glass-panel chunk-toc" aria-label="正文导航">
             <div class="panel-heading">
               <div>
-                <p class="panel__eyebrow">Chunk Directory</p>
+
                 <h3>正文导航</h3>
               </div>
-              <el-tag effect="plain">{{ totalChunks }} 块</el-tag>
+              <el-tag effect="plain">{{ totalChunks }} 段</el-tag>
             </div>
             <el-select
               v-if="hasChunks"
@@ -930,7 +903,7 @@ onBeforeUnmount(() => {
               <el-option
                 v-for="item in chunkItems"
                 :key="item.key"
-                :label="`#${item.chunkIndex}${item.pageNo !== null ? ` · 第 ${item.pageNo} 页` : ''}${item.tokenCount !== null ? ` · ${item.tokenCount} tokens` : ''}`"
+                :label="`第 ${item.chunkIndex + 1} 段 · ${item.paragraphs[0]?.slice(0, 24) || '暂无内容'}`"
                 :value="item.chunkIndex"
               />
             </el-select>
@@ -942,17 +915,11 @@ onBeforeUnmount(() => {
                 :class="{ 'is-active': item.chunkIndex === currentChunk }"
                 @click="jumpToChunk(item.chunkIndex)"
               >
-                <span>#{{ item.chunkIndex }}</span>
-                <small v-if="item.pageNo !== null"
-                  >第 {{ item.pageNo }} 页</small
-                >
-                <small v-if="item.tokenCount !== null"
-                  >{{ item.tokenCount }} tokens</small
-                >
+                <span>第 {{ item.chunkIndex + 1 }} 段</span>
                 <em>{{ item.paragraphs[0]?.slice(0, 28) || '（空分块）' }}</em>
               </button>
             </div>
-            <el-empty v-else description="暂无分块目录" />
+            <el-empty v-else description="暂无正文目录" />
           </aside>
         </div>
       </section>
@@ -960,7 +927,7 @@ onBeforeUnmount(() => {
       <section class="glass-panel note-board" aria-label="阅读笔记">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Reading Notes</p>
+
             <h3>阅读笔记</h3>
           </div>
           <div class="detail-actions">

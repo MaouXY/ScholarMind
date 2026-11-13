@@ -3,6 +3,7 @@ import { ElMessage } from 'element-plus'
 
 import router from '@/router'
 import { clearToken, getToken } from '@/utils/storage'
+import { normalizeMetrics, requestFailures, requestFailureLabel } from '@/utils/requestState'
 
 interface ApiResponse<T> {
   code: number
@@ -35,33 +36,31 @@ request.interceptors.response.use(
       payload.code !== 200
     ) {
       ElMessage.error(payload.message || '请求失败')
+      requestFailures.set(response.config.url ?? '', payload.message || '请求失败')
+      console.error('business request failed, scenario=http-response, url=%s, code=%s', response.config.url, payload.code, payload)
       return Promise.reject(payload)
     }
-    return payload?.data ?? response.data
+    requestFailures.delete(response.config.url ?? '')
+    return normalizeMetrics(payload?.data ?? response.data) as never
   },
   (error) => {
     const status = error?.response?.status
+    const url = String(error?.config?.url ?? '')
+    console.error('request failed, scenario=http-request, method=%s, url=%s, status=%s', error?.config?.method, url, status, error)
+    if (status !== 401) requestFailures.set(url, requestFailureLabel(url))
     const isTimeout =
       error?.code === 'ECONNABORTED' ||
       error?.code === 'ETIMEDOUT' ||
       /timeout/i.test(String(error?.message ?? ''))
     if (status === 401) {
-      if (import.meta.env.VITE_USE_MOCK_AUTH === 'true') {
-        console.error(
-          'request unauthorized in mock mode, scenario=http-unauthorized-mock, url=%s',
-          error?.config?.url,
-          error,
-        )
-      } else {
-        clearToken()
-        ElMessage.error('登录已失效，请重新登录')
-        router.push('/login')
-      }
+      clearToken()
+      ElMessage.error('登录已失效，请重新登录')
+      router.push('/login')
     } else if (isTimeout) {
-      ElMessage.error('AI 处理较慢，已超过等待时间，请稍后重试')
+      ElMessage.error('请求超时，请稍后重试')
     } else {
       ElMessage.error(
-        error?.response?.data?.message || error.message || '网络异常',
+        error?.response?.data?.message || '服务暂时不可用，请稍后重试',
       )
     }
     return Promise.reject(error)

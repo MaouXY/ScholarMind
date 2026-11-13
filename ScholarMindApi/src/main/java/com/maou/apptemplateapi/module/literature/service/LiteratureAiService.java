@@ -29,12 +29,19 @@ import com.maou.apptemplateapi.module.literature.service.retrieval.SparseRetriev
 import com.maou.apptemplateapi.module.rag.dto.RagChunkResponse;
 import com.maou.apptemplateapi.module.rag.service.MilvusLiteratureVectorService;
 import com.maou.apptemplateapi.module.rag.service.RagRerankService;
+import dev.langchain4j.exception.HttpException;
+import dev.langchain4j.exception.TimeoutException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import javax.net.ssl.SSLException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.net.http.HttpTimeoutException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -227,6 +234,8 @@ public class LiteratureAiService {
         List<LiteratureReferenceChunkResponse> references = searchChunks(request.question(), literature.getCategoryId(), request.limit(), "literature-question");
         references = references.stream().filter(item -> literatureId.equals(item.literatureId())).toList();
         if (references.isEmpty()) {
+            log.warn("literature question retrieval fallback, scenario=literature-question, literatureId={}, userId={}, reason=no-matching-references",
+                    literatureId, currentUser.getId());
             references = literatureIndexService.listEnabledChunks(literatureId).stream()
                     .limit(Math.max(request.limit() == null ? 5 : request.limit(), 1))
                     .map(chunk -> new LiteratureReferenceChunkResponse(chunk.getId(), chunk.getLiteratureId(), chunk.getChunkIndex(), chunk.getChunkText(), 0))
@@ -238,6 +247,8 @@ public class LiteratureAiService {
         AiTaskRecord task = aiTaskService.createPending(currentUser.getOrganizationId(), TASK_QUESTION, BIZ_TYPE_LITERATURE, literatureId,
                 request.question() + "\n\n" + referenceText);
         long started = System.currentTimeMillis();
+        log.info("literature question started, scenario=literature-question, literatureId={}, userId={}, taskId={}, modelName={}, referenceCount={}",
+                literatureId, currentUser.getId(), task.getId(), task.getModelName(), references.size());
         try {
             String answer = aiClient.generate(questionSystemPrompt(), """
                     Literature title: %s
@@ -246,6 +257,9 @@ public class LiteratureAiService {
                     Reference chunks:
                     %s
                     """.formatted(literature.getTitle(), request.question(), truncatePrompt(referenceText)));
+            if (!StringUtils.hasText(answer)) {
+                throw new IllegalStateException("AI question output is blank");
+            }
             LiteratureQaRecord record = new LiteratureQaRecord();
             record.setUserId(currentUser.getId());
             record.setLiteratureId(literatureId);
@@ -259,6 +273,10 @@ public class LiteratureAiService {
                     literatureId, currentUser.getId(), task.getId(), record.getId(), references.size());
             return new LiteratureQuestionResponse(record.getId(), literatureId, request.question(), answer, references, record.getCreatedAt());
         } catch (RuntimeException exception) {
+            // 先保留真实异常堆栈，防止后续业务留痕失败掩盖模型调用原因。
+            log.error("literature question failed, scenario=literature-question, literatureId={}, userId={}, taskId={}, modelName={}, referenceCount={}, durationMs={}",
+                    literatureId, currentUser.getId(), task.getId(), task.getModelName(), references.size(),
+                    System.currentTimeMillis() - started, exception);
             aiTaskService.markFailed(task.getId(), exception.getMessage(), System.currentTimeMillis() - started);
             LiteratureQaRecord record = new LiteratureQaRecord();
             record.setUserId(currentUser.getId());
@@ -269,10 +287,27 @@ public class LiteratureAiService {
             record.setStatus("FAILED");
             record.setErrorMessage(exception.getMessage());
             qaRecordMapper.insert(record);
-            log.error("literature question failed, scenario=literature-question, literatureId={}, userId={}, taskId={}, recordId={}",
-                    literatureId, currentUser.getId(), task.getId(), record.getId(), exception);
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE, questionFailureMessage(exception, task.getId()));
         }
+    }
+
+    private String questionFailureMessage(RuntimeException exception, Long taskId) {
+        String message = "回答生成失败，请稍后重试";
+        Throwable cause = exception;
+        for (int depth = 0; cause != null && depth < 16; depth++, cause = cause.getCause()) {
+            if (cause instanceof SSLException) {
+                message = "AI 服务安全连接失败，请稍后重试或联系管理员检查网络";
+            } else if (cause instanceof TimeoutException || cause instanceof HttpTimeoutException
+                    || cause instanceof SocketTimeoutException) {
+                message = "AI 服务响应超时，请稍后重试";
+            } else if (cause instanceof ConnectException || cause instanceof UnknownHostException) {
+                message = "无法连接 AI 服务，请稍后重试或联系管理员检查网络";
+            } else if (cause instanceof HttpException httpException
+                    && (httpException.statusCode() == 401 || httpException.statusCode() == 403)) {
+                message = "AI 服务授权失败，请联系管理员检查模型配置";
+            }
+        }
+        return message + "（任务编号：" + taskId + "）";
     }
 
     public LiteratureCompareResponse compare(LiteratureCompareRequest request) {

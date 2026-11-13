@@ -37,7 +37,6 @@ const roleLabel = computed(() => {
 
 <template>
   <aside class="sidebar" :class="{ 'sidebar--collapsed': collapsed }">
-    <span class="sidebar__halo" aria-hidden="true" />
 
     <div class="sidebar__brand">
       <span class="sidebar__mark">
@@ -45,15 +44,11 @@ const roleLabel = computed(() => {
       </span>
       <div v-if="!collapsed">
         <strong>ScholarMind</strong>
-        <p>Spatial Literature OS</p>
+        <p>文献检索与阅读助手</p>
       </div>
     </div>
 
-    <div v-if="!collapsed" class="sidebar__context">
-      <span>当前空间</span>
-      <strong>{{ roleLabel }}</strong>
-      <small>AI retrieval · RAG ready</small>
-    </div>
+    <p v-if="!collapsed" class="sidebar__role">{{ roleLabel }}</p>
 
     <nav class="sidebar__nav" aria-label="主导航">
       <section v-for="group in visibleMenus" :key="group.title" class="sidebar__group">
@@ -63,7 +58,7 @@ const roleLabel = computed(() => {
         :key="item.path"
         :to="item.path"
         class="sidebar__link"
-        :class="{ 'is-active': currentPath === item.path }"
+        :class="{ 'is-active': currentPath === item.path || (item.path === '/student/library' && currentPath.startsWith('/student/literature/')) }"
         :aria-label="item.label"
       >
         <span class="sidebar__icon"><el-icon><component :is="item.icon" /></el-icon></span>
@@ -73,10 +68,5 @@ const roleLabel = computed(() => {
       </section>
     </nav>
 
-    <div v-if="!collapsed" class="sidebar__footer">
-      <span>Reading Focus</span>
-      <strong>沉浸式论文精读</strong>
-      <small>检索、摘要、批注和知识库协同工作</small>
-    </div>
   </aside>
 </template>

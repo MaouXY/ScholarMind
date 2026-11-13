@@ -146,24 +146,15 @@ onMounted(() => {
 
 <template>
   <section class="admin-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">User Governance</p>
-        <h2>统一管理平台用户与账号状态</h2>
-        <p>
-          按角色与状态筛选平台账号，查看用户名、昵称、邮箱与创建时间，并可直接启用或停用账号，停用后该用户将无法继续访问平台功能。
-        </p>
-      </div>
-      <div class="hero-stats">
+    <div class="shelf-summary"><div class="hero-stats">
         <span><strong>{{ total }}</strong>匹配用户</span>
         <span><strong>{{ enabledCount }}</strong>本页启用</span>
-      </div>
-    </div>
+      </div></div>
 
     <section class="glass-panel admin-filter-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Account Filter</p>
+
           <h3>用户筛选</h3>
         </div>
         <el-button :icon="Refresh" plain :loading="loading" @click="fetchUsers">
@@ -212,7 +203,7 @@ onMounted(() => {
     <section class="glass-panel admin-table-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">User List</p>
+
           <h3>用户列表</h3>
         </div>
         <el-tag effect="light">共 {{ total }} 条</el-tag>

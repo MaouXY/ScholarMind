@@ -53,88 +53,6 @@ import type {
   ReadingNotePayload,
 } from '@/types/literature'
 
-const demoLiteratures: Literature[] = [
-  {
-    id: '1200000000000000001',
-    title:
-      'Research on Intelligent Recommendation Service in University Digital Library',
-    author: 'Li Ming',
-    source: 'Library Information Service',
-    publishYear: 2024,
-    language: 'zh-CN',
-    categoryName: 'Recommendation System',
-    uploaderId: '1000000000000000003',
-    visibility: 'PUBLIC',
-    status: 'PUBLISHED',
-    abstractText:
-      'This paper discusses personalized resource recommendation for university digital libraries and proposes a hybrid method based on keywords and user behavior.',
-    aiSummary:
-      '论文围绕高校数字图书馆的个性化推荐服务展开，重点比较关键词匹配与用户行为建模的协同效果，适合作为推荐系统与数字图书馆结合方向的综述入口。',
-    keywords:
-      'digital library,recommendation system,user behavior,personalization',
-    readCount: 36,
-    downloadCount: 8,
-  },
-  {
-    id: '1200000000000000002',
-    title:
-      'Semantic Retrieval Method for Academic Literature Based on User Intent',
-    author: 'Wang Qian',
-    source: 'Modern Information',
-    publishYear: 2023,
-    language: 'zh-CN',
-    categoryName: 'Information Retrieval',
-    uploaderId: '1000000000000000003',
-    visibility: 'PUBLIC',
-    status: 'PUBLISHED',
-    abstractText:
-      'This study analyzes natural language search intent and improves academic literature discovery through structured retrieval conditions.',
-    aiSummary:
-      '文章从自然语言检索意图识别切入，把用户问题拆解为主题、方法、对象和约束条件，对构建 AI 文献检索助手的查询理解模块很有参考价值。',
-    keywords:
-      'semantic retrieval,natural language,academic literature,user intent',
-    readCount: 28,
-    downloadCount: 5,
-  },
-]
-
-const demoNotes: ReadingNote[] = [
-  {
-    id: '9000000000000000001',
-    literatureId: '1200000000000000001',
-    title: '可复用模块',
-    content: '推荐系统部分可以抽象为关键词召回、行为权重、混合排序三个模块。',
-    aiGenerated: 0,
-  },
-  {
-    id: '9000000000000000002',
-    literatureId: '1200000000000000001',
-    title: 'AI 解析建议',
-    content:
-      '适合用作“个性化资源推荐”章节的相关工作，对比用户行为和内容相似度。',
-    aiGenerated: 1,
-  },
-]
-
-const demoReferences: LiteratureReferenceChunk[] = [
-  {
-    id: '9100000000000000001',
-    literatureId: '1200000000000000001',
-    chunkIndex: 1,
-    content:
-      'The hybrid recommendation workflow combines keyword matching with behavior signals to reduce cold-start friction in digital library services.',
-    score: 0.91,
-  },
-  {
-    id: '9100000000000000002',
-    literatureId: '1200000000000000002',
-    chunkIndex: 3,
-    content:
-      'Natural language intent parsing maps student questions into topic, method, object and constraint fields before retrieval.',
-    score: 0.86,
-  },
-]
-
 const categories = ref<LiteratureCategory[]>([])
 const literatures = ref<Literature[]>([])
 const selected = ref<Literature | null>(null)
@@ -146,6 +64,11 @@ const searchInsight = ref<LiteratureSearchResult | null>(null)
 const readingHistory = ref<ReadingHistory | null>(null)
 const loading = ref(false)
 const detailLoading = ref(false)
+const listFailed = ref(false)
+const detailFailed = ref(false)
+const notesFailed = ref(false)
+const previewVisible = ref(false)
+const lastSearch = ref<'keyword' | 'smart'>('keyword')
 const saving = ref(false)
 const uploading = ref(false)
 const noteSaving = ref(false)
@@ -195,7 +118,7 @@ const form = reactive<LiteraturePayload>({
 
 const ragForm = reactive({
   mode: 'natural' as 'natural' | 'semantic' | 'hybrid',
-  query: '帮我找出适合构建 AI 文献检索助手的研究方法',
+  query: '',
   limit: 5,
 })
 
@@ -419,38 +342,19 @@ async function fetchCategories() {
       'category load failed, scenario=literature-category-list',
       error,
     )
-    categories.value = [
-      {
-        id: '1100000000000000001',
-        name: 'Digital Library',
-        sort: 10,
-        status: 1,
-      },
-      {
-        id: '1100000000000000002',
-        name: 'Information Retrieval',
-        sort: 20,
-        status: 1,
-      },
-      {
-        id: '1100000000000000003',
-        name: 'Artificial Intelligence',
-        sort: 30,
-        status: 1,
-      },
-    ]
+    categories.value = []
   }
 }
 
 async function fetchLiteratures() {
   loading.value = true
+  listFailed.value = false
+  lastSearch.value = 'keyword'
+  searchInsight.value = null
   try {
     const result = await listLiteratures(query)
     literatures.value = result.items
     total.value = result.total
-    if (!selected.value && result.items.length > 0) {
-      await chooseLiterature(result.items[0])
-    }
   } catch (error) {
     console.error(
       'literature list failed, scenario=literature-search, keyword=%s, categoryId=%s, status=%s',
@@ -459,11 +363,11 @@ async function fetchLiteratures() {
       query.status,
       error,
     )
-    literatures.value = demoLiteratures
-    total.value = demoLiteratures.length
-    if (!selected.value) {
-      await chooseLiterature(demoLiteratures[0])
-    }
+    listFailed.value = true
+    literatures.value = []
+    total.value = 0
+    selected.value = null
+    detail.value = null
   } finally {
     loading.value = false
   }
@@ -476,6 +380,8 @@ async function runRagSearch() {
   }
 
   ragSearching.value = true
+  listFailed.value = false
+  lastSearch.value = 'smart'
   try {
     const payload = {
       query: ragForm.query,
@@ -491,10 +397,7 @@ async function runRagSearch() {
     searchInsight.value = result
     literatures.value = result.literatures
     total.value = result.literatures.length
-    if (result.literatures.length > 0) {
-      await chooseLiterature(result.literatures[0])
-    }
-    ElMessage.success('RAG 检索完成')
+    ElMessage.success('检索完成')
   } catch (error) {
     console.error(
       'rag search failed, scenario=literature-rag-search, mode=%s, query=%s, categoryId=%s, limit=%s',
@@ -504,24 +407,19 @@ async function runRagSearch() {
       ragForm.limit,
       error,
     )
-    searchInsight.value = {
-      query: ragForm.query,
-      literatures: demoLiteratures,
-      references: demoReferences,
-      parsedIntent:
-        '演示模式：意图拆解为主题=AI 文献检索助手，方法=语义检索/RAG，目标=找到可复用设计。',
-    }
-    literatures.value = demoLiteratures
-    total.value = demoLiteratures.length
-    if (!selected.value) {
-      await chooseLiterature(demoLiteratures[0])
-    }
+    listFailed.value = true
+    searchInsight.value = null
+    literatures.value = []
+    total.value = 0
+    selected.value = null
+    detail.value = null
   } finally {
     ragSearching.value = false
   }
 }
 
 async function fetchNotes(literatureId: Id) {
+  notesFailed.value = false
   try {
     const result = await listReadingNotes({ literatureId, page: 1, size: 20 })
     notes.value = result.items
@@ -532,8 +430,9 @@ async function fetchNotes(literatureId: Id) {
       literatureId,
       error,
     )
-    notes.value = demoNotes.filter((note) => note.literatureId === literatureId)
-    notesTotal.value = notes.value.length
+    notesFailed.value = true
+    notes.value = []
+    notesTotal.value = 0
   }
 }
 
@@ -542,6 +441,7 @@ async function chooseLiterature(item: Literature) {
   abstractExpanded.value = false
   readingHistory.value = null
   detailLoading.value = true
+  detailFailed.value = false
   try {
     const response = await getLiteratureView(item.id)
     detail.value = response
@@ -562,14 +462,10 @@ async function chooseLiterature(item: Literature) {
       item.id,
       error,
     )
-    detail.value = {
-      literature: item,
-      favorited: false,
-      readingHistory: null,
-      recentNotes: demoNotes.filter((note) => note.literatureId === item.id),
-    }
+    detailFailed.value = true
+    detail.value = null
     favorited.value = false
-    notes.value = detail.value.recentNotes
+    notes.value = []
     notesTotal.value = notes.value.length
     readingHistory.value = null
   } finally {
@@ -768,27 +664,13 @@ onMounted(async () => {
 
 <template>
   <section class="library-page">
-    <div class="spatial-hero">
-      <div>
-        <p class="panel__eyebrow">Stage 4 LLM + RAG Workspace</p>
-        <h2>让语义检索、证据引用和论文问答在阅读舱里闭环</h2>
-        <p>
-          自然语言检索、向量召回与在线阅读围绕当前文献闭环：命中证据可追溯，
-          阅读进度与笔记自动沉淀。
-        </p>
-      </div>
-      <div class="hero-orbit" aria-hidden="true">
-        <span>RAG</span>
-        <span>Ask</span>
-        <span>Cite</span>
-      </div>
-    </div>
+
 
     <div class="library-layout">
       <aside class="glass-panel search-panel" aria-label="文献检索">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Search Lens</p>
+
             <h3>检索条件</h3>
           </div>
           <el-button :icon="DocumentAdd" type="primary" @click="openCreate">
@@ -847,11 +729,11 @@ onMounted(async () => {
           </el-button>
         </el-form>
 
-        <section class="rag-search-box" aria-label="RAG 语义检索">
+        <section class="rag-search-box" aria-label="智能检索">
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Semantic Retrieval</p>
-              <h3>RAG 检索</h3>
+
+              <h3>智能检索</h3>
             </div>
             <el-tag effect="plain">{{ ragModeLabel }}</el-tag>
           </div>
@@ -866,7 +748,7 @@ onMounted(async () => {
           <el-input
             v-model="ragForm.query"
             type="textarea"
-            :rows="4"
+            :rows="2"
             placeholder="用研究问题描述你想找的文献"
           />
           <div class="rag-search-box__footer">
@@ -882,7 +764,7 @@ onMounted(async () => {
               :loading="ragSearching"
               @click="runRagSearch"
             >
-              RAG 检索
+              检索
             </el-button>
           </div>
         </section>
@@ -899,24 +781,36 @@ onMounted(async () => {
         </div>
 
         <section v-if="searchInsight" class="rag-intent-panel">
-          <p class="panel__eyebrow">Parsed Intent</p>
+
           <p>
             {{
               searchInsight.parsedIntent ||
-              '后端返回了检索结果，暂无自然语言意图说明。'
+              '已按研究问题检索相关文献。'
             }}
           </p>
           <strong>{{ searchInsight.references.length }} 条证据片段</strong>
         </section>
       </aside>
 
-      <section class="result-stack" aria-label="检索结果">
+      <section class="result-stack" aria-label="检索结果" v-loading="loading || ragSearching">
+        <div class="results-heading">
+          <h2>{{ searchInsight ? '检索结果' : '文献库' }} <small>{{ total }} 篇</small></h2>
+          <el-button v-if="searchInsight" text @click="fetchLiteratures">全部文献</el-button>
+        </div>
+        <el-empty v-if="listFailed" description="文献加载失败">
+          <el-button type="primary" @click="lastSearch === 'smart' ? runRagSearch() : fetchLiteratures()">重试</el-button>
+        </el-empty>
+        <el-empty v-else-if="!loading && !ragSearching && !literatures.length" description="没有找到相关文献" />
         <article
           v-for="item in literatures"
           :key="item.id"
           class="paper-card"
           :class="{ 'is-active': selected?.id === item.id }"
-          @click="chooseLiterature(item)"
+          tabindex="0"
+          role="button"
+          @click="chooseLiterature(item); previewVisible = true"
+          @keydown.enter="chooseLiterature(item); previewVisible = true"
+          @keydown.space.prevent="chooseLiterature(item); previewVisible = true"
         >
           <div class="paper-card__status">
             <el-tag size="small" effect="plain">{{
@@ -935,6 +829,10 @@ onMounted(async () => {
             <span>{{ item.source || '未填写来源' }}</span>
             <span>{{ item.publishYear || '年份未知' }}</span>
           </div>
+          <div class="paper-card__actions">
+            <el-button text type="primary" @click.stop="router.push(`/student/literature/${item.id}/read`)">在线阅读</el-button>
+            <el-button text @click.stop="router.push(`/student/literature/${item.id}`)">详情与引用</el-button>
+          </div>
         </article>
 
         <section
@@ -944,7 +842,7 @@ onMounted(async () => {
         >
           <div class="panel-heading">
             <div>
-              <p class="panel__eyebrow">Retrieved Chunks</p>
+
               <h3>命中证据片段</h3>
             </div>
             <el-tag size="small" effect="plain">
@@ -957,7 +855,7 @@ onMounted(async () => {
               :key="reference.id"
             >
               <div>
-                <strong>#{{ reference.chunkIndex ?? reference.id }}</strong>
+                <strong>证据片段 {{ reference.chunkIndex != null ? reference.chunkIndex + 1 : '' }}</strong>
                 <span>{{ scorePercent(reference.score) }}%</span>
               </div>
               <div
@@ -978,13 +876,25 @@ onMounted(async () => {
             </article>
           </div>
         </section>
+        <el-pagination
+          v-if="!searchInsight && !listFailed && total > query.size"
+          v-model:current-page="query.page"
+          :page-size="query.size"
+          :total="total"
+          layout="total, prev, pager, next"
+          @current-change="fetchLiteratures"
+        />
       </section>
 
+      <el-drawer v-model="previewVisible" title="文献预览" size="min(620px, 100vw)">
       <section
         class="reader-surface reader-surface--stage3"
         aria-label="论文解析阅读器"
       >
-        <template v-if="currentLiterature">
+        <el-empty v-if="detailFailed" description="文献详情加载失败">
+          <el-button v-if="selected" @click="chooseLiterature(selected)">重试</el-button>
+        </el-empty>
+        <template v-else-if="currentLiterature">
           <div class="reader-toolbar" aria-label="文献操作">
             <el-button
               :icon="favorited ? StarFilled : Star"
@@ -1033,15 +943,11 @@ onMounted(async () => {
             <section class="reader-section detail-info" aria-label="文献详情">
               <div class="panel-heading">
                 <div>
-                  <p class="panel__eyebrow">Literature Profile</p>
+
                   <h3>文献详情</h3>
                 </div>
               </div>
               <dl class="detail-info__list">
-                <div class="detail-info__row">
-                  <dt>标题</dt>
-                  <dd>{{ currentLiterature.title || '—' }}</dd>
-                </div>
                 <div class="detail-info__row">
                   <dt>作者</dt>
                   <dd>{{ currentLiterature.author || '—' }}</dd>
@@ -1098,7 +1004,7 @@ onMounted(async () => {
             <section class="note-board">
               <div class="panel-heading">
                 <div>
-                  <p class="panel__eyebrow">Reading Notes</p>
+
                   <h3>阅读笔记</h3>
                 </div>
                 <el-button :icon="Notebook" plain @click="openNoteCreate()"
@@ -1122,12 +1028,13 @@ onMounted(async () => {
                   </div>
                 </article>
               </div>
-              <el-empty v-else description="暂无笔记，创建一条阅读批注" />
+              <el-empty v-else :description="notesFailed ? '笔记加载失败，请重试' : '暂无笔记'" />
             </section>
           </article>
         </template>
         <el-empty v-else description="检索后选择一篇文献开始阅读" />
       </section>
+      </el-drawer>
     </div>
 
     <el-drawer

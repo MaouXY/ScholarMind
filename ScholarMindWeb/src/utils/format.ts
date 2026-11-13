@@ -3,6 +3,10 @@ const categoryLabels: Record<string, string> = {
   'Information Retrieval': '信息检索',
   'Artificial Intelligence': '人工智能',
   'Recommendation System': '推荐系统',
+  'Data Mining': '数据挖掘',
+  'Knowledge Graph': '知识图谱',
+  'Academic Writing': '学术写作',
+  'Semantic Retrieval': '语义检索',
 }
 
 const statusLabels: Record<string, string> = {
@@ -34,4 +38,10 @@ export function displayRoleName(role?: string | null) {
 
 export function localizeDimensionName(name?: string | null) {
   return displayCategoryName(name)
+}
+
+export function displayLanguage(value?: string | null) {
+  if (value?.startsWith('zh')) return '中文'
+  if (value?.startsWith('en')) return '英文'
+  return value || '未标注语种'
 }

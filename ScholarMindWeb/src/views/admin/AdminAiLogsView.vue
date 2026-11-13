@@ -194,19 +194,6 @@ onMounted(() => {
 
 <template>
   <section class="admin-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">AI Task Observability</p>
-        <h2>观察每一次 AI 调用的状态与耗时</h2>
-        <p>
-          日志页汇总 AI 任务的调用总量、失败与超时情况，并保留每次调用的输入输出预览，方便排查模型异常、超时和业务参数问题。
-        </p>
-      </div>
-      <div class="hero-stats">
-        <span><strong>{{ summary?.total ?? 0 }}</strong>累计调用</span>
-      </div>
-    </div>
-
     <section class="admin-kpi-grid" v-loading="loadingSummary">
       <article v-for="item in kpiCards" :key="item.label" class="screen-kpi">
         <el-icon><component :is="item.icon" /></el-icon>
@@ -219,7 +206,7 @@ onMounted(() => {
     <section class="glass-panel admin-filter-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Log Filter</p>
+
           <h3>日志筛选</h3>
         </div>
         <el-button
@@ -280,7 +267,7 @@ onMounted(() => {
     <section class="glass-panel admin-table-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Task Logs</p>
+
           <h3>调用日志</h3>
         </div>
         <el-tag effect="light">共 {{ total }} 条</el-tag>

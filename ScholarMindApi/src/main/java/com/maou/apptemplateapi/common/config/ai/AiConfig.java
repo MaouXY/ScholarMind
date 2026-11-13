@@ -15,6 +15,11 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import java.io.EOFException;
+import java.net.SocketException;
+import java.security.cert.CertificateException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -182,8 +187,8 @@ public class AiConfig {
                                 scenario, attempt, retriable, exception.getClass().getSimpleName(), exception);
                         throw exception;
                     }
-                    log.warn("ai call transient failure, retrying, scenario=ai-call-{}, attempt={}, maxAttempts={}, errorType={}, message={}",
-                            scenario, attempt, MAX_ATTEMPTS, exception.getClass().getSimpleName(), exception.getMessage());
+                    log.warn("ai call transient failure, retrying, scenario=ai-call-{}, attempt={}, maxAttempts={}, errorType={}",
+                            scenario, attempt, MAX_ATTEMPTS, exception.getClass().getSimpleName(), exception);
                     sleepBeforeRetry(attempt);
                 }
             }
@@ -191,16 +196,30 @@ public class AiConfig {
         }
 
         private boolean isRetriable(RuntimeException exception) {
+            if (exception instanceof HttpException httpException) {
+                int statusCode = httpException.statusCode();
+                return statusCode == 429 || statusCode >= 500;
+            }
+            // SDK 会把 TLS 握手中断、连接重置等 I/O 异常包在 RuntimeException 中。
+            // 证书校验失败不能靠重试修复，也不能通过关闭证书验证绕过。
+            boolean connectionInterrupted = false;
+            Throwable cause = exception;
+            for (int depth = 0; cause != null && depth < 16; depth++, cause = cause.getCause()) {
+                if (cause instanceof CertificateException || cause instanceof SSLPeerUnverifiedException) {
+                    return false;
+                }
+                if (cause instanceof EOFException || cause instanceof SocketException
+                        || cause instanceof SSLHandshakeException
+                        && "Remote host terminated the handshake".equals(cause.getMessage())) {
+                    connectionInterrupted = true;
+                }
+            }
             if (exception instanceof UnresolvedModelServerException
                     || exception instanceof RetriableException
                     || exception instanceof TimeoutException) {
                 return true;
             }
-            if (exception instanceof HttpException httpException) {
-                int statusCode = httpException.statusCode();
-                return statusCode == 429 || statusCode >= 500;
-            }
-            return false;
+            return connectionInterrupted;
         }
 
         private void sleepBeforeRetry(int attempt) {

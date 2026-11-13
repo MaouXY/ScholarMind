@@ -54,6 +54,9 @@ ScholarMind/
 06_stage5_search_log_schema.sql     检索行为日志
 07_stage6_citation_schema.sql       引用记录（citation_record）
 08_seed_demo_scale.sql              演示数据扩充（用户/文献/分块/收藏/笔记/历史/RAG/AI 日志/检索日志）
+09_retire_teacher_accounts.sql     教师端下线与演示用户迁移
+10_seed_retrieval_demo.sql         三模式检索演示数据
+11_seed_open_access_papers.sql     开放论文题录与摘要译文（无伪造全文）
 ```
 
 命令行执行示例（**注意指定 utf8mb4**，否则中文演示数据会报 `Incorrect string value`）：
@@ -67,6 +70,8 @@ Get-ChildItem .\ScholarMindApi\src\main\resources\sql\*.sql | Sort-Object Name |
 ```
 
 `05` 与 `07`、`08` 均为幂等脚本（`CREATE TABLE IF NOT EXISTS` / `ON DUPLICATE KEY UPDATE`），可重复执行。
+
+已有数据库补充论文数据时，仅执行 `11_seed_open_access_papers.sql`；全新初始化按 `00~11` 文件顺序执行。随后在管理端重建文献向量。该脚本只导入三篇 arXiv 论文的题录、摘要和明确标注的中文摘要译文，不写入假原文附件；正式全文需另行核验许可并上传。
 
 ## 四、启动
 

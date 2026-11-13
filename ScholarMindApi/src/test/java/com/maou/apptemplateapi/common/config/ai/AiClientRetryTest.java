@@ -1,21 +1,31 @@
 package com.maou.apptemplateapi.common.config.ai;
 
 import com.maou.apptemplateapi.module.ai.service.AiClient;
+import dev.langchain4j.model.chat.ChatModel;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import javax.net.ssl.SSLHandshakeException;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.security.cert.CertificateException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * 验证 AiConfig 中「模型调用重试」的行为：
@@ -90,6 +100,48 @@ class AiClientRetryTest {
         assertEquals("dev.langchain4j.exception.UnresolvedModelServerException", failure.getClass().getName());
         // 两次退避分别为 800ms 与 1600ms，耗时下界可证明确实重试过
         assertTrue(elapsed >= 1800, "地址解析失败应触发退避重试，实际耗时 " + elapsed + "ms");
+    }
+
+    @Test
+    void retriesWrappedHandshakeInterruptionThenSucceeds() {
+        ChatModel model = mock(ChatModel.class);
+        AiClient client = clientWithModel(model);
+        when(model.chat(anyString()))
+                .thenThrow(new RuntimeException(new SSLHandshakeException("Remote host terminated the handshake")))
+                .thenReturn("连接恢复后的真实回答");
+
+        assertEquals("连接恢复后的真实回答", client.generate("system", "user"));
+        verify(model, times(2)).chat(anyString());
+    }
+
+    @Test
+    void stopsAfterThreeWrappedConnectionInterruptions() {
+        ChatModel model = mock(ChatModel.class);
+        AiClient client = clientWithModel(model);
+        RuntimeException failure = new RuntimeException(new EOFException("connection closed"));
+        when(model.chat(anyString())).thenThrow(failure);
+
+        assertEquals(failure, assertThrows(RuntimeException.class, () -> client.generate("system", "user")));
+        verify(model, times(MAX_ATTEMPTS)).chat(anyString());
+    }
+
+    @Test
+    void doesNotRetryCertificateValidationFailure() {
+        ChatModel model = mock(ChatModel.class);
+        AiClient client = clientWithModel(model);
+        SSLHandshakeException handshake = new SSLHandshakeException("Remote host terminated the handshake");
+        handshake.initCause(new CertificateException("certificate chain is not trusted"));
+        RuntimeException failure = new RuntimeException(handshake);
+        when(model.chat(anyString())).thenThrow(failure);
+
+        assertEquals(failure, assertThrows(RuntimeException.class, () -> client.generate("system", "user")));
+        verify(model, times(1)).chat(anyString());
+    }
+
+    private AiClient clientWithModel(ChatModel model) {
+        AiClient client = buildClient();
+        ReflectionTestUtils.setField(client, "chatModel", model);
+        return client;
     }
 
     private AiClient buildClient() {

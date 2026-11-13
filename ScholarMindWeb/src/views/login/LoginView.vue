@@ -4,6 +4,7 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
+import RequestFailures from '@/components/RequestFailures.vue'
 import type { LoginForm } from '@/types/auth'
 
 const authStore = useAuthStore()
@@ -51,25 +52,19 @@ async function handleLogin() {
 <template>
   <div class="login-page">
     <section class="login-hero">
-      <p class="login-hero__eyebrow">Stage 2 Platform</p>
       <h1>ScholarMind</h1>
       <p class="login-hero__text">
-        面向毕业论文与科研学习场景的 AI 文献检索、精读、摘要和知识库管理工作台。
+        文献检索与阅读助手
       </p>
-      <div class="login-hero__chips" aria-label="平台能力">
-        <span>语义检索</span>
-        <span>论文精读</span>
-        <span>阅读笔记</span>
-        <span>知识库治理</span>
-      </div>
     </section>
 
     <section class="login-card" aria-label="登录表单">
       <div class="login-card__header">
         <h2>进入平台</h2>
-        <p>使用演示账号或后端真实账号登录。</p>
+        <p>使用你的平台账号登录</p>
       </div>
 
+      <RequestFailures />
       <el-form label-position="top" @submit.prevent="handleLogin">
         <el-form-item label="角色">
           <el-segmented

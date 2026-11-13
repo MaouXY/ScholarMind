@@ -26,117 +26,22 @@ import {
   rebuildKnowledgeDocument,
   updateKnowledgeDocument,
 } from '@/api/rag'
-import { displayCategoryName, displayStatusName } from '@/utils/format'
+import { displayCategoryName, displayStatusName, displayRoleName } from '@/utils/format'
+import { emptyDashboard } from '@/utils/dashboard'
 import type { Id } from '@/types/auth'
 import type { AdminDashboard } from '@/types/admin'
 import type { Literature } from '@/types/literature'
 import type { KnowledgeDocument, KnowledgeDocumentPayload } from '@/types/rag'
 
-const emptyOverview = {
-  userTotal: 0,
-  studentTotal: 0,
-  activeUserTotal: 0,
-  literatureTotal: 0,
-  publishedLiteratureTotal: 0,
-  pendingReviewTotal: 0,
-  privateLiteratureTotal: 0,
-  fileTotal: 0,
-  fileSizeBytes: 0,
-  favoriteTotal: 0,
-  readingHistoryTotal: 0,
-  readingNoteTotal: 0,
-  qaTotal: 0,
-  ragDocumentTotal: 0,
-  aiTaskTotal: 0,
-  aiTaskSuccessTotal: 0,
-  aiTaskFailedTotal: 0,
-  aiSuccessRate: 0,
-  avgAiDurationMs: 0,
-}
-
-const demoDashboard: AdminDashboard = {
-  overview: {
-    ...emptyOverview,
-    userTotal: 36,
-    studentTotal: 35,
-    activeUserTotal: 24,
-    literatureTotal: 128,
-    publishedLiteratureTotal: 94,
-    pendingReviewTotal: 9,
-    privateLiteratureTotal: 25,
-    fileTotal: 116,
-    fileSizeBytes: 1024 * 1024 * 384,
-    favoriteTotal: 216,
-    readingHistoryTotal: 346,
-    readingNoteTotal: 142,
-    qaTotal: 88,
-    ragDocumentTotal: 18,
-    aiTaskTotal: 126,
-    aiTaskSuccessTotal: 116,
-    aiTaskFailedTotal: 6,
-    aiSuccessRate: 0.92,
-    avgAiDurationMs: 1840,
-  },
-  trends: [],
-  literatureStatusStats: [
-    { name: 'PUBLISHED', count: 94 },
-    { name: 'PENDING_REVIEW', count: 9 },
-    { name: 'DRAFT', count: 18 },
-    { name: 'REJECTED', count: 7 },
-  ],
-  literatureCategoryStats: [
-    { name: 'Information Retrieval', count: 36 },
-    { name: 'Artificial Intelligence', count: 31 },
-    { name: 'Digital Library', count: 26 },
-  ],
-  userRoleStats: [
-    { name: 'STUDENT', count: 35 },
-    { name: 'ADMIN', count: 1 },
-  ],
-  hotLiteratures: [
-    {
-      literatureId: '1200000000000000001',
-      title: 'Research on Intelligent Recommendation Service in University Digital Library',
-      author: 'Li Ming',
-      categoryName: 'Recommendation System',
-      status: 'PUBLISHED',
-      visibility: 'PUBLIC',
-      readCount: 86,
-      downloadCount: 18,
-      favoriteCount: 24,
-      noteCount: 11,
-    },
-  ],
-  activeUsers: [
-    {
-      userId: '1000000000000000002',
-      username: 'student01',
-      nickname: 'Student One',
-      role: 'STUDENT',
-      uploadedLiteratureCount: 8,
-      readingHistoryCount: 22,
-      favoriteCount: 15,
-      noteCount: 9,
-      qaCount: 12,
-      activityScore: 66,
-    },
-  ],
-  aiTaskHealth: [
-    {
-      taskType: 'LITERATURE_QA',
-      total: 88,
-      success: 82,
-      failed: 4,
-      timeout: 2,
-      successRate: 0.93,
-      avgDurationMs: 1620,
-    },
-  ],
-}
-
 const pending = ref<Literature[]>([])
 const knowledgeDocs = ref<KnowledgeDocument[]>([])
-const dashboard = ref<AdminDashboard>(demoDashboard)
+const dashboard = ref<AdminDashboard>(emptyDashboard())
+const dashboardFailed = ref(false)
+const metrics = computed(() => dashboardFailed.value ? [] : overviewCards.value)
+const pendingFailed = ref(false)
+const knowledgeFailed = ref(false)
+const archiveFailed = ref(false)
+const activeTab = ref('review')
 const loadingDashboard = ref(false)
 const loadingPending = ref(false)
 const loadingKnowledge = ref(false)
@@ -178,36 +83,6 @@ const overviewCards = computed(() => {
   ]
 })
 
-const demoPending: Literature[] = [
-  {
-    id: '1200000000000000003',
-    title: 'Application of Large Language Models in Literature Reading Assistance',
-    author: 'Zhang Wei',
-    source: 'Computer Applications',
-    publishYear: 2025,
-    categoryName: 'Artificial Intelligence',
-    uploaderId: '1000000000000000002',
-    visibility: 'PUBLIC',
-    status: 'PENDING_REVIEW',
-    abstractText:
-      'The article explores how large language models support summarization, question answering, and reading note generation in literature reading scenarios.',
-    keywords: 'large language model,literature reading,question answering,summary',
-    readCount: 9,
-    downloadCount: 1,
-  },
-]
-
-const demoKnowledge: KnowledgeDocument[] = [
-  {
-    id: '1300000000000000001',
-    title: 'AI 文献阅读助手平台说明',
-    categoryId: '1100000000000000003',
-    content: '平台支持文献检索、AI 摘要、阅读笔记、审核发布与 RAG 知识库维护。',
-    enabled: 1,
-    chunkCount: 4,
-  },
-]
-
 function resetKnowledgeForm() {
   editingKnowledgeId.value = null
   Object.assign(knowledgeForm, {
@@ -240,6 +115,7 @@ function statusLabel(status: string) {
 
 async function fetchDashboard() {
   loadingDashboard.value = true
+  dashboardFailed.value = false
   try {
     dashboard.value = await getAdminDashboard(dashboardQuery)
   } catch (error) {
@@ -249,7 +125,8 @@ async function fetchDashboard() {
       dashboardQuery.limit,
       error,
     )
-    dashboard.value = demoDashboard
+    dashboardFailed.value = true
+    dashboard.value = emptyDashboard()
   } finally {
     loadingDashboard.value = false
   }
@@ -257,12 +134,14 @@ async function fetchDashboard() {
 
 async function fetchPending() {
   loadingPending.value = true
+  pendingFailed.value = false
   try {
     const result = await listPendingLiteratures({ page: 1, size: 20 })
     pending.value = result.items
   } catch (error) {
     console.error('pending list failed, scenario=admin-pending-literatures', error)
-    pending.value = demoPending
+    pendingFailed.value = true
+    pending.value = []
   } finally {
     loadingPending.value = false
   }
@@ -270,12 +149,14 @@ async function fetchPending() {
 
 async function fetchKnowledge() {
   loadingKnowledge.value = true
+  knowledgeFailed.value = false
   try {
     const result = await listKnowledgeDocuments({ page: 1, size: 20 })
     knowledgeDocs.value = result.items
   } catch (error) {
     console.error('knowledge list failed, scenario=admin-rag-documents', error)
-    knowledgeDocs.value = demoKnowledge
+    knowledgeFailed.value = true
+    knowledgeDocs.value = []
   } finally {
     loadingKnowledge.value = false
   }
@@ -365,6 +246,7 @@ async function rebuild(item: KnowledgeDocument) {
 
 async function fetchArchive() {
   archiveLoading.value = true
+  archiveFailed.value = false
   try {
     const result = await listLiteratures({
       page: archiveQuery.page,
@@ -375,6 +257,7 @@ async function fetchArchive() {
     archiveTotal.value = result.total
   } catch (error) {
     console.error('archive list failed, scenario=admin-archive-literatures', error)
+    archiveFailed.value = true
     archiveList.value = []
     archiveTotal.value = 0
   } finally {
@@ -429,19 +312,11 @@ onMounted(async () => {
 
 <template>
   <section class="admin-page">
-    <div class="spatial-hero compact-hero">
-      <div>
-        <p class="panel__eyebrow">Stage 5 Admin Command</p>
-        <h2>把文献审核与知识库维护放在一个后台管理舱</h2>
-        <p>
-          第五阶段聚焦后台管理与数据统计：管理员可以处理公开发布、维护 RAG 知识库，并观察用户、文献、AI 任务的关键运行指标。
-        </p>
-      </div>
-    </div>
+
 
     <section class="admin-control-strip glass-panel">
       <div>
-        <p class="panel__eyebrow">Statistics Window</p>
+
         <h3>统计窗口</h3>
       </div>
       <el-segmented
@@ -457,8 +332,11 @@ onMounted(async () => {
       </el-button>
     </section>
 
-    <section class="admin-kpi-grid admin-kpi-grid--three">
-      <article v-for="item in overviewCards" :key="item.label" class="screen-kpi">
+    <el-empty v-if="dashboardFailed" description="统计数据加载失败">
+      <el-button @click="fetchDashboard">重试</el-button>
+    </el-empty>
+    <section class="admin-kpi-grid admin-kpi-grid--three" v-loading="loadingDashboard">
+      <article v-for="item in metrics" :key="item.label" class="screen-kpi">
         <el-icon><component :is="item.icon" /></el-icon>
         <p>{{ item.label }}</p>
         <strong>{{ item.value }}</strong>
@@ -466,11 +344,17 @@ onMounted(async () => {
       </article>
     </section>
 
+    <el-tabs v-model="activeTab" class="management-tabs">
+      <el-tab-pane label="待审核" name="review" />
+      <el-tab-pane label="文献管理" name="archive" />
+      <el-tab-pane label="知识库" name="knowledge" />
+      <el-tab-pane label="活跃概况" name="activity" />
+    </el-tabs>
     <div class="admin-layout admin-layout--stage5">
-      <section class="glass-panel review-panel">
+      <section v-show="activeTab === 'review'" class="glass-panel review-panel" v-loading="loadingPending">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Publication Queue</p>
+
             <h3>公开文献审核</h3>
           </div>
           <el-button :icon="Refresh" plain :loading="loadingPending" @click="fetchPending">
@@ -480,7 +364,7 @@ onMounted(async () => {
         <div class="approval-list">
           <article v-for="item in pending" :key="item.id" class="approval-card">
             <div>
-              <p class="panel__eyebrow">{{ displayCategoryName(item.categoryName) }}</p>
+          <p class="panel__eyebrow">{{ displayCategoryName(item.categoryName) }}</p>
               <h3>{{ item.title }}</h3>
               <p>{{ item.abstractText || '暂无摘要。' }}</p>
               <div class="paper-card__meta">
@@ -509,14 +393,16 @@ onMounted(async () => {
               </el-button>
             </div>
           </article>
-          <el-empty v-if="!pending.length && !loadingPending" description="暂无待审核文献" />
+          <el-empty v-if="!pending.length && !loadingPending" :description="pendingFailed ? '审核队列加载失败' : '暂无待审核文献'">
+            <el-button v-if="pendingFailed" @click="fetchPending">重试</el-button>
+          </el-empty>
         </div>
       </section>
 
-      <section class="glass-panel knowledge-panel">
+      <section v-show="activeTab === 'knowledge'" class="glass-panel knowledge-panel" v-loading="loadingKnowledge">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">RAG Knowledge</p>
+
             <h3>知识库文档</h3>
           </div>
           <el-button type="primary" :icon="Search" @click="openKnowledgeCreate">
@@ -525,6 +411,9 @@ onMounted(async () => {
         </div>
 
         <div class="knowledge-list">
+          <el-empty v-if="!knowledgeDocs.length && !loadingKnowledge" :description="knowledgeFailed ? '知识库加载失败' : '暂无知识文档'">
+            <el-button v-if="knowledgeFailed" @click="fetchKnowledge">重试</el-button>
+          </el-empty>
           <article v-for="item in knowledgeDocs" :key="item.id" class="knowledge-card">
             <div>
               <h3>{{ item.title }}</h3>
@@ -543,10 +432,10 @@ onMounted(async () => {
       </section>
     </div>
 
-    <section class="glass-panel archive-panel">
+    <section v-show="activeTab === 'archive'" class="glass-panel archive-panel">
       <div class="panel-heading">
         <div>
-          <p class="panel__eyebrow">Literature Archive</p>
+
           <h3>文献库管理</h3>
         </div>
         <div class="archive-actions">
@@ -591,7 +480,9 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="没有匹配的文献" />
+          <el-empty :description="archiveFailed ? '文献加载失败' : '没有匹配的文献'">
+            <el-button v-if="archiveFailed" @click="fetchArchive">重试</el-button>
+          </el-empty>
         </template>
       </el-table>
 
@@ -609,11 +500,11 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="admin-insight-grid">
+    <section v-show="activeTab === 'activity' && !dashboardFailed" class="admin-insight-grid">
       <div class="glass-panel chart-panel">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Hot Literature</p>
+
             <h3>热门文献</h3>
           </div>
           <el-icon><DataAnalysis /></el-icon>
@@ -632,7 +523,7 @@ onMounted(async () => {
       <div class="glass-panel chart-panel">
         <div class="panel-heading">
           <div>
-            <p class="panel__eyebrow">Active Users</p>
+
             <h3>活跃用户</h3>
           </div>
           <el-icon><User /></el-icon>
@@ -641,7 +532,7 @@ onMounted(async () => {
           <article v-for="item in dashboard.activeUsers" :key="item.userId">
             <span>{{ item.nickname || item.username }}</span>
             <strong>{{ item.activityScore }}</strong>
-            <small>{{ item.role }} · 阅读 {{ item.readingHistoryCount }} · QA {{ item.qaCount }}</small>
+            <small>{{ displayRoleName(item.role) }} · 阅读 {{ item.readingHistoryCount }} · 问答 {{ item.qaCount }}</small>
           </article>
         </div>
       </div>
