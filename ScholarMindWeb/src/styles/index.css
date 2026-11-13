@@ -619,6 +619,14 @@ button {
   font-size: 20px;
 }
 
+/* 面板标题下的一行口径说明，用于解释分数 / 指标的算法 */
+.panel-heading .panel-caption {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1212,6 +1220,22 @@ button {
 .hot-literature-list span,
 .hot-literature-list small,
 .active-user-list small {
+  color: var(--color-muted);
+}
+
+/* 活跃分：数字 + 单位，鼠标悬停可看分项来源 */
+.active-user-list .activity-score {
+  color: var(--color-text);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
+.active-user-list .activity-score em {
+  margin-left: 2px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
   color: var(--color-muted);
 }
 

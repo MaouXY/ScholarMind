@@ -29,7 +29,7 @@ import {
 import { displayCategoryName, displayStatusName, displayRoleName } from '@/utils/format'
 import { emptyDashboard } from '@/utils/dashboard'
 import type { Id } from '@/types/auth'
-import type { AdminDashboard } from '@/types/admin'
+import type { AdminActiveUser, AdminDashboard } from '@/types/admin'
 import type { Literature } from '@/types/literature'
 import type { KnowledgeDocument, KnowledgeDocumentPayload } from '@/types/rag'
 
@@ -111,6 +111,17 @@ function openKnowledgeEdit(item: KnowledgeDocument) {
 
 function statusLabel(status: string) {
   return displayStatusName(status)
+}
+
+/** 活跃分口径与后端 AdminStatisticsService#activeUsers 保持一致：上传×5 + 阅读×2 + 收藏×2 + 笔记×3 + 问答×4 */
+function activityBreakdown(item: AdminActiveUser) {
+  return [
+    `上传 ${item.uploadedLiteratureCount}×5`,
+    `阅读 ${item.readingHistoryCount}×2`,
+    `收藏 ${item.favoriteCount}×2`,
+    `笔记 ${item.noteCount}×3`,
+    `问答 ${item.qaCount}×4`,
+  ].join(' + ')
 }
 
 async function fetchDashboard() {
@@ -525,13 +536,16 @@ onMounted(async () => {
           <div>
 
             <h3>活跃用户</h3>
+            <p class="panel-caption">活跃分 = 上传×5 + 阅读×2 + 收藏×2 + 笔记×3 + 问答×4</p>
           </div>
           <el-icon><User /></el-icon>
         </div>
         <div class="active-user-list">
           <article v-for="item in dashboard.activeUsers" :key="item.userId">
             <span>{{ item.nickname || item.username }}</span>
-            <strong>{{ item.activityScore }}</strong>
+            <el-tooltip placement="top" :content="activityBreakdown(item)">
+              <strong class="activity-score">{{ item.activityScore }}<em>分</em></strong>
+            </el-tooltip>
             <small>{{ displayRoleName(item.role) }} · 阅读 {{ item.readingHistoryCount }} · 问答 {{ item.qaCount }}</small>
           </article>
         </div>
