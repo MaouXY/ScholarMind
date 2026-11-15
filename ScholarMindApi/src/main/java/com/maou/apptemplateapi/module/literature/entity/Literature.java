@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Getter
@@ -16,7 +17,12 @@ public class Literature {
     private String title;
     private String author;
     private String source;
-    private Integer publishYear;
+    /** 文献类别：期刊论文/会议论文/学位论文/图书/预印本/其他 */
+    private String literatureType;
+    /** 发表时间（精确到日）。publish_year 列保留为历史存档，应用层不再读写。 */
+    private LocalDate publishDate;
+    /** 在线公开时间（精确到日） */
+    private LocalDate onlinePublishDate;
     private String language;
     private Long categoryId;
     private Long uploaderId;

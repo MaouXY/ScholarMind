@@ -1,10 +1,4 @@
-export type LiteratureStatus =
-  | 'DRAFT'
-  | 'PENDING_REVIEW'
-  | 'PUBLISHED'
-  | 'REJECTED'
-
-export type LiteratureVisibility = 'PRIVATE' | 'PUBLIC'
+export type LiteratureType = '期刊论文' | '会议论文' | '学位论文' | '图书' | '预印本' | '其他'
 
 import type { Id } from '@/types/auth'
 
@@ -33,13 +27,13 @@ export interface Literature {
   title: string
   author?: string
   source?: string
-  publishYear?: number
+  literatureType?: LiteratureType | string
   language?: string
   categoryId?: Id | null
   categoryName?: string | null
+  publishDate?: string | null
+  onlinePublishDate?: string | null
   uploaderId: Id
-  visibility: LiteratureVisibility
-  status: LiteratureStatus
   fileId?: Id | null
   fileUrl?: string | null
   fileType?: string | null
@@ -49,9 +43,6 @@ export interface Literature {
   keywords?: string
   readCount?: number
   downloadCount?: number
-  reviewedBy?: Id | null
-  reviewedAt?: string | null
-  rejectReason?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -61,18 +52,18 @@ export interface LiteratureQuery {
   size: number
   keyword?: string
   categoryId?: Id
-  status?: LiteratureStatus
-  visibility?: LiteratureVisibility
+  literatureType?: LiteratureType | string
 }
 
 export interface LiteraturePayload {
   title: string
   author?: string
   source?: string
-  publishYear?: number
+  literatureType?: LiteratureType | string
   language?: string
   categoryId?: Id
-  visibility: LiteratureVisibility
+  publishDate?: string | null
+  onlinePublishDate?: string | null
   fileId?: Id
   abstractText?: string
   keywords?: string
@@ -219,8 +210,6 @@ export interface Favorite {
   literatureTitle: string
   author?: string | null
   categoryName?: string | null
-  status?: string | null
-  visibility?: string | null
   readCount: number
   createdAt?: string
 }
@@ -232,8 +221,6 @@ export interface ReadingHistoryItem {
   literatureTitle: string
   author?: string | null
   categoryName?: string | null
-  status?: string | null
-  visibility?: string | null
   lastPage: number
   progress: number
   readDuration: number

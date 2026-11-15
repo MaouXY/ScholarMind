@@ -4,6 +4,8 @@ import com.maou.apptemplateapi.module.citation.enums.CitationStyle;
 import com.maou.apptemplateapi.module.literature.entity.Literature;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -69,7 +71,7 @@ class CitationFormatterTest {
         literature.setTitle(title);
         literature.setAuthor(author);
         literature.setSource(source);
-        literature.setPublishYear(year);
+        literature.setPublishDate(year == null ? null : LocalDate.of(year, 1, 1));
         literature.setKeywords(keywords);
         return literature;
     }

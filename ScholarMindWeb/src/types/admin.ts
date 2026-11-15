@@ -5,9 +5,6 @@ export interface AdminOverview {
   studentTotal: number
   activeUserTotal: number
   literatureTotal: number
-  publishedLiteratureTotal: number
-  pendingReviewTotal: number
-  privateLiteratureTotal: number
   fileTotal: number
   fileSizeBytes: number
   favoriteTotal: number
@@ -41,8 +38,7 @@ export interface AdminHotLiterature {
   title: string
   author?: string
   categoryName?: string
-  status: string
-  visibility: string
+  literatureType: string
   readCount: number
   downloadCount: number
   favoriteCount: number
@@ -75,7 +71,7 @@ export interface AdminAiTaskHealth {
 export interface AdminDashboard {
   overview: AdminOverview
   trends: AdminTrendPoint[]
-  literatureStatusStats: AdminDimensionStat[]
+  literatureTypeStats: AdminDimensionStat[]
   literatureCategoryStats: AdminDimensionStat[]
   userRoleStats: AdminDimensionStat[]
   hotLiteratures: AdminHotLiterature[]

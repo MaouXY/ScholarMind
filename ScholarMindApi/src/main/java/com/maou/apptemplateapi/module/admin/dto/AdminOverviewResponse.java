@@ -4,15 +4,14 @@ package com.maou.apptemplateapi.module.admin.dto;
  * 管理端总览指标。计数、耗时等统计数值统一使用 Integer：
  * 全局 Jackson 会把 Long 序列化为字符串（保护雪花 ID 精度），而统计口径的数值前端需要按数字使用。
  * ID 类字段仍保持 Long，不受此约定影响。
+ * <p>客户 2026-11-15 口径调整后，文献由管理员上传即发布，不再有「已发布 / 待审核 / 私有」之分，
+ * 对应的三个拆解指标随之下线。</p>
  */
 public record AdminOverviewResponse(
         Integer userTotal,
         Integer studentTotal,
         Integer activeUserTotal,
         Integer literatureTotal,
-        Integer publishedLiteratureTotal,
-        Integer pendingReviewTotal,
-        Integer privateLiteratureTotal,
         Integer fileTotal,
         // 文件总字节可能超过 int 范围：全局 Long→String 会影响数值字段，Double 可精确表示到 2^53
         Double fileSizeBytes,

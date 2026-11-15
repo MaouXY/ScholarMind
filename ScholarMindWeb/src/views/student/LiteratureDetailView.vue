@@ -28,7 +28,7 @@ import {
   downloadCitationReferences,
   openLiteratureFile,
 } from '@/utils/download'
-import { displayCategoryName } from '@/utils/format'
+import { displayCategoryName, displayLiteratureType } from '@/utils/format'
 import type {
   CitationRecord,
   CitationStyle,
@@ -38,8 +38,6 @@ import type {
   Id,
   Literature,
   LiteratureDetail,
-  LiteratureStatus,
-  LiteratureVisibility,
 } from '@/types/literature'
 import '@/styles/literature-ext.css'
 
@@ -135,15 +133,28 @@ const downloadCountText = computed(() => {
   return literature.value?.downloadCount ?? 0
 })
 
-const factRows = computed(() => [
-  {
+/** 阅读进度条宽度（0~100），未开始阅读时留 0 */
+const readingProgress = computed(() => {
+  const value = detail.value?.readingHistory?.progress ?? 0
+  return Math.min(100, Math.max(0, Math.round(value)))
+})
+
+const factRows = computed(() => [  {
     label: '学科分类',
     value: displayCategoryName(literature.value?.categoryName ?? null),
   },
   { label: '语言', value: literature.value?.language || '未填写' },
   {
-    label: '出版年份',
-    value: String(literature.value?.publishYear || '未填写'),
+    label: '文献类别',
+    value: displayLiteratureType(literature.value?.literatureType),
+  },
+  {
+    label: '出版日期',
+    value: literature.value?.publishDate || '未填写',
+  },
+  {
+    label: '在线公开',
+    value: literature.value?.onlinePublishDate || '未填写',
   },
   { label: '文件类型', value: literature.value?.fileType || '未绑定' },
   { label: '全文大小', value: fileSizeText.value },
@@ -159,29 +170,6 @@ const factRows = computed(() => [
   },
   { label: '文献编号', value: literature.value?.id ?? literatureId.value },
 ])
-
-function statusLabel(status?: LiteratureStatus) {
-  const labels: Record<LiteratureStatus, string> = {
-    DRAFT: '草稿',
-    PENDING_REVIEW: '审核中',
-    PUBLISHED: '已发布',
-    REJECTED: '已退回',
-  }
-  return status ? labels[status] : '未知状态'
-}
-
-function statusTagType(status?: LiteratureStatus) {
-  if (status === 'PUBLISHED') return 'success'
-  if (status === 'REJECTED') return 'danger'
-  if (status === 'PENDING_REVIEW') return 'warning'
-  return 'info'
-}
-
-function visibilityLabel(visibility?: LiteratureVisibility) {
-  if (visibility === 'PUBLIC') return '公开'
-  if (visibility === 'PRIVATE') return '私有'
-  return '未知'
-}
 
 /** 业务错误码 14107：该文献未绑定原文文件 */
 function isMissingFileError(error: unknown) {
@@ -520,20 +508,13 @@ onMounted(async () => {
         <div class="reader-meta">
           <span>{{ literature.author || '未知作者' }}</span>
           <span>{{ literature.source || '未填写来源' }}</span>
-          <span>{{ literature.publishYear || '年份未知' }}</span>
+          <span>{{ literature.publishDate || '出版日期未知' }}</span>
           <span>{{ literature.language || '语言未填写' }}</span>
         </div>
 
         <div class="reader-meta">
-          <el-tag
-            size="small"
-            effect="plain"
-            :type="statusTagType(literature.status)"
-          >
-            {{ statusLabel(literature.status) }}
-          </el-tag>
           <el-tag size="small" effect="plain">{{
-            visibilityLabel(literature.visibility)
+            displayLiteratureType(literature.literatureType)
           }}</el-tag>
           <el-tag size="small" effect="plain" type="info">{{
             summaryStatus
@@ -814,20 +795,16 @@ onMounted(async () => {
               <strong>{{ detail?.readingHistory?.lastPage ?? '—' }}</strong>
             </div>
             <div>
-              <span>可见性</span>
-              <strong>{{ visibilityLabel(literature.visibility) }}</strong>
+              <span>文献类别</span>
+              <strong>{{ displayLiteratureType(literature.literatureType) }}</strong>
             </div>
             <div>
-              <span>审核状态</span>
-              <strong>{{ statusLabel(literature.status) }}</strong>
+              <span>在线公开</span>
+              <strong>{{ literature.onlinePublishDate || '—' }}</strong>
             </div>
           </section>
           <div class="progress-line">
-            <span
-              :style="{
-                width: `${literature.visibility === 'PUBLIC' ? 100 : 56}%`,
-              }"
-            />
+            <span :style="{ width: `${readingProgress}%` }" />
           </div>
           <section class="reading-grid">
             <div>

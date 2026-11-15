@@ -27,7 +27,7 @@ $token = $login.data.token
 $headers = @{ Authorization = "Bearer $token" }
 
 Write-Host '==> 拉取未绑定原文的演示文献'
-$list = Invoke-RestMethod -Uri "$BaseUrl/literatures?status=PUBLISHED&page=1&size=100" -Headers $headers
+$list = Invoke-RestMethod -Uri "$BaseUrl/literatures?page=1&size=100" -Headers $headers
 if ($list.code -ne 0) { throw "文献列表获取失败: $($list.message)" }
 $targets = @($list.data.items | Where-Object {
     $_.id -ge '1200000000000000040' -and $_.id -le '1200000000000000051' -and -not $_.fileId
@@ -51,7 +51,7 @@ foreach ($item in $targets) {
     $content = @"
 $($item.title)
 作者：$($item.author)
-来源：$($item.source)（$($item.publishYear)）
+来源：$($item.source)（$($item.publishDate)）
 关键词：$($item.keywords)
 
 $body
@@ -71,10 +71,11 @@ $body
         title        = $item.title
         author       = $item.author
         source       = $item.source
-        publishYear  = $item.publishYear
-        language     = $item.language
-        categoryId   = $item.categoryId
-        visibility   = $item.visibility
+        literatureType    = $item.literatureType
+        publishDate       = $item.publishDate
+        onlinePublishDate = $item.onlinePublishDate
+        language          = $item.language
+        categoryId        = $item.categoryId
         abstractText = $item.abstractText
         keywords     = $item.keywords
         fileId       = $fileId

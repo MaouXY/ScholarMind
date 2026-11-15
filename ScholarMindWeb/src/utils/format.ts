@@ -9,21 +9,13 @@ const categoryLabels: Record<string, string> = {
   'Semantic Retrieval': '语义检索',
 }
 
-const statusLabels: Record<string, string> = {
-  DRAFT: '草稿',
-  PENDING_REVIEW: '审核中',
-  PUBLISHED: '已发布',
-  REJECTED: '已退回',
-}
-
 export function displayCategoryName(name?: string | null) {
   if (!name) return '未分类'
   return categoryLabels[name] ?? name
 }
 
-export function displayStatusName(status?: string | null) {
-  if (!status) return '未知状态'
-  return statusLabels[status] ?? status
+export function displayLiteratureType(type?: string | null) {
+  return type || '其他'
 }
 
 const roleLabels: Record<string, string> = {

@@ -174,7 +174,9 @@ public class LiteratureIndexService {
                 Title: %s
                 Author: %s
                 Source: %s
-                Year: %s
+                Type: %s
+                Published: %s
+                Online: %s
                 Keywords: %s
                 Abstract: %s
                 AI Summary: %s
@@ -182,7 +184,9 @@ public class LiteratureIndexService {
                 value(literature.getTitle()),
                 value(literature.getAuthor()),
                 value(literature.getSource()),
-                literature.getPublishYear() == null ? "" : literature.getPublishYear(),
+                value(literature.getLiteratureType()),
+                literature.getPublishDate() == null ? "" : literature.getPublishDate(),
+                literature.getOnlinePublishDate() == null ? "" : literature.getOnlinePublishDate(),
                 value(literature.getKeywords()),
                 value(literature.getAbstractText()),
                 value(literature.getAiSummary()));

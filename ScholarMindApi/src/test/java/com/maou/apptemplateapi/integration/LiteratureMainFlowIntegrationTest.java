@@ -21,7 +21,6 @@ import com.maou.apptemplateapi.module.literature.dto.LiteratureQuestionResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureReferenceChunkResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureRequest;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureResponse;
-import com.maou.apptemplateapi.module.literature.dto.LiteratureReviewRequest;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureSearchRequest;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureSearchResponse;
 import com.maou.apptemplateapi.module.literature.dto.ReadingHistoryRequest;
@@ -64,6 +63,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -167,72 +167,60 @@ class LiteratureMainFlowIntegrationTest {
     // ---------------------------------------------------------------- 主链路
 
     @Test
-    @DisplayName("主链路：新建公开文献（自动进入待审核）→ 管理员通过后公开可见")
-    void literatureLifecycle_publishAfterReview() {
-        authenticate(UPLOADER_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("集成测试文献：混合检索方法", "PUBLIC"));
-        assertEquals("PENDING_REVIEW", created.status(), "公开文献上传后自动进入待审核");
-        assertEquals(UPLOADER_ID, created.uploaderId());
-
+    @DisplayName("主链路：管理员上传即发布，学生端立即可读")
+    void literatureUpload_publishesImmediately() {
         authenticate(ADMIN_ID, UserRole.ADMIN);
-        LiteratureResponse published = literatureService.approve(created.id());
-        assertEquals("PUBLISHED", published.status());
-        assertNotNull(literatureMapper.selectById(created.id()).getReviewedAt());
+        LiteratureResponse created = literatureService.create(literatureRequest("集成测试文献：混合检索方法"));
+        assertEquals(ADMIN_ID, created.uploaderId(), "上传者应为当前管理员");
+        assertEquals("期刊论文", created.literatureType());
+        assertEquals(LocalDate.of(2024, 1, 1), created.publishDate());
+        assertEquals(LocalDate.of(2024, 1, 1), created.onlinePublishDate());
+        assertEquals("PUBLISHED", literatureMapper.selectById(created.id()).getStatus());
 
-        // 私有文献则先落草稿，需显式提交（此处验证草稿态不被自动发布）
-        authenticate(UPLOADER_ID, UserRole.STUDENT);
-        LiteratureResponse privateDraft = literatureService.create(literatureRequest("私有草稿文献", "PRIVATE"));
-        assertEquals("DRAFT", privateDraft.status());
-    }
-
-    @Test
-    @DisplayName("异常分支：私有文献不许提交审核、已发布不许重复提交、草稿不许直接审核")
-    void literatureLifecycle_rejectsIllegalStateTransition() {
-        authenticate(UPLOADER_ID, UserRole.STUDENT);
-        LiteratureResponse privateOne = literatureService.create(literatureRequest("私有文献提交测试", "PRIVATE"));
-        assertEquals("DRAFT", privateOne.status());
-        BusinessException privateSubmit = assertThrows(BusinessException.class, () -> literatureService.submit(privateOne.id()));
-        assertEquals(ErrorCode.LITERATURE_STATUS_INVALID, privateSubmit.getErrorCode());
-
-        LiteratureResponse publicOne = literatureService.create(literatureRequest("已发布文献重复提交测试", "PUBLIC"));
-        authenticate(ADMIN_ID, UserRole.ADMIN);
-        literatureService.approve(publicOne.id());
-
-        authenticate(UPLOADER_ID, UserRole.STUDENT);
-        BusinessException resubmit = assertThrows(BusinessException.class, () -> literatureService.submit(publicOne.id()));
-        assertEquals(ErrorCode.LITERATURE_STATUS_INVALID, resubmit.getErrorCode());
-
-        LiteratureResponse draft = literatureService.create(literatureRequest("草稿直接审核测试", "PRIVATE"));
-        authenticate(ADMIN_ID, UserRole.ADMIN);
-        BusinessException approveDraft = assertThrows(BusinessException.class, () -> literatureService.approve(draft.id()));
-        assertEquals(ErrorCode.LITERATURE_STATUS_INVALID, approveDraft.getErrorCode());
-    }
-
-    @Test
-    @DisplayName("异常分支：审核退回需记录原因，退回后为 REJECTED")
-    void literatureLifecycle_rejectWithReason() {
-        authenticate(UPLOADER_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("待退回文献", "PUBLIC"));
-
-        authenticate(ADMIN_ID, UserRole.ADMIN);
-        LiteratureResponse rejected = literatureService.reject(created.id(), new LiteratureReviewRequest("摘要信息不足，请补充"));
-        assertEquals("REJECTED", rejected.status());
-        assertEquals("摘要信息不足，请补充", literatureMapper.selectById(created.id()).getRejectReason());
-    }
-
-    @Test
-    @DisplayName("权限：私有文献仅上传者可读，他人访问返回 14102")
-    void privateLiterature_isReadableOnlyByUploader() {
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("私有读书笔记", "PRIVATE"));
+        assertEquals(created.id(), literatureService.detail(created.id()).id(), "学生应能读到管理员上传的文献");
+        assertTrue(literatureService.list(1, 10, "混合检索方法", null, null).getItems().stream()
+                        .anyMatch(item -> created.id().equals(item.id())),
+                "学生列表应包含该文献");
+    }
 
-        CurrentUser studentA = currentUser(STUDENT_A_ID, UserRole.STUDENT);
-        assertEquals(created.id(), literatureService.requireReadableLiterature(created.id(), studentA, "it").getId());
+    @Test
+    @DisplayName("异常分支：学生不允许上传文献，返回 403")
+    void literatureUpload_rejectsStudent() {
+        for (UserRole role : List.of(UserRole.STUDENT)) {
+            authenticate(STUDENT_A_ID, role);
+            BusinessException denied = assertThrows(BusinessException.class,
+                    () -> literatureService.create(literatureRequest("学生越权上传测试")));
+            assertEquals(ErrorCode.FORBIDDEN, denied.getErrorCode());
+        }
+    }
 
-        CurrentUser studentB = currentUser(STUDENT_B_ID, UserRole.STUDENT);
+    @Test
+    @DisplayName("文献类别与学科：按类别筛选生效，非法类别被参数校验拦截")
+    void literatureUpload_filtersByTypeAndSubject() {
+        authenticate(ADMIN_ID, UserRole.ADMIN);
+        LiteratureResponse created = literatureService.create(
+                literatureRequest("会议论文筛选测试", "会议论文", CATEGORY_ID));
+        assertEquals("会议论文", created.literatureType());
+
+        assertEquals(1, literatureService.list(1, 10, "会议论文筛选测试", null, "会议论文").getItems().size());
+        assertTrue(literatureService.list(1, 10, "会议论文筛选测试", null, "图书").getItems().isEmpty());
+        assertEquals(1, literatureService.list(1, 10, "会议论文筛选测试", CATEGORY_ID, null).getItems().size());
+    }
+
+    @Test
+    @DisplayName("权限：管理员可编辑，学生不可编辑文献")
+    void literatureUpdate_requiresAdmin() {
+        LiteratureResponse created = createAsAdmin("编辑权限测试文献");
+
+        authenticate(STUDENT_A_ID, UserRole.STUDENT);
         BusinessException denied = assertThrows(BusinessException.class,
-                () -> literatureService.requireReadableLiterature(created.id(), studentB, "it"));
-        assertEquals(ErrorCode.LITERATURE_ACCESS_DENIED, denied.getErrorCode());
+                () -> literatureService.update(created.id(), literatureRequest("越权改名")));
+        assertEquals(ErrorCode.FORBIDDEN, denied.getErrorCode());
+
+        authenticate(ADMIN_ID, UserRole.ADMIN);
+        LiteratureResponse updated = literatureService.update(created.id(), literatureRequest("编辑后的标题"));
+        assertEquals("编辑后的标题", updated.title());
     }
 
     // ---------------------------------------------------------------- 索引与阅读
@@ -243,8 +231,7 @@ class LiteratureMainFlowIntegrationTest {
         when(milvusLiteratureVectorService.enabled()).thenReturn(true);
         when(milvusLiteratureVectorService.rebuildLiterature(any(), any(), anyString())).thenReturn(false);
 
-        authenticate(UPLOADER_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("索引重建测试文献", "PRIVATE"));
+        LiteratureResponse created = createAsAdmin("索引重建测试文献");
 
         LiteratureIndexResponse index = literatureIndexService.rebuild(created.id());
         assertTrue(index.chunkCount() > 0, "应生成正文分块");
@@ -261,8 +248,8 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("阅读进度：正常保存可回读，进度越界返回 14202")
     void readingHistory_upsertAndValidateProgress() {
+        LiteratureResponse created = createAsAdmin("阅读进度测试文献");
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("阅读进度测试文献", "PRIVATE"));
 
         readingHistoryService.upsert(created.id(), new ReadingHistoryRequest(2, 60, 300));
         assertEquals(60, readingHistoryService.getByLiterature(created.id()).progress());
@@ -275,8 +262,8 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("阅读笔记：本人可增删改查，他人删除返回 14302")
     void readingNote_crudAndCrossUserDenied() {
+        LiteratureResponse created = createAsAdmin("笔记测试文献");
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("笔记测试文献", "PRIVATE"));
         ReadingNoteResponse note = readingNoteService.create(
                 new ReadingNoteRequest(created.id(), "研究问题", "本文关注混合检索的召回质量。", 0));
         assertNotNull(note.id());
@@ -298,8 +285,8 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("收藏：重复收藏返回 14105，取消后可再次收藏")
     void favorite_duplicateGuardAndUnfavorite() {
+        LiteratureResponse created = createAsAdmin("收藏测试文献");
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("收藏测试文献", "PRIVATE"));
 
         FavoriteResponse favorite = favoriteService.favorite(created.id());
         assertNotNull(favorite.id());
@@ -316,8 +303,8 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("回归：反复收藏/取消收藏多轮不得抛唯一索引异常（客户反馈的 500）")
     void favorite_repeatedToggleIsStable() {
+        LiteratureResponse created = createAsAdmin("收藏反复切换文献");
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("收藏反复切换文献", "PRIVATE"));
 
         // 逻辑删除会把 deleted 置 1，第二次取消时与历史行冲突 -> DuplicateKeyException -> HTTP 500。
         // 修复后取消收藏为物理删除，任意轮次都应稳定。
@@ -337,8 +324,8 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("引用管理：生成三种格式、收藏去重、导出参考文献、取消收藏")
     void citation_generateSaveExportAndDelete() {
+        LiteratureResponse created = createAsAdmin("引用管理测试文献");
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("引用管理测试文献", "PRIVATE"));
 
         List<CitationStyleResponse> styles = citationService.stylesForLiterature(created.id());
         assertEquals(3, styles.size());
@@ -366,8 +353,8 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("异常分支：非法引用格式返回 14403")
     void citation_rejectsUnknownStyle() {
+        LiteratureResponse created = createAsAdmin("格式校验文献");
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("格式校验文献", "PRIVATE"));
 
         BusinessException invalid = assertThrows(BusinessException.class,
                 () -> citationService.save(new CitationSaveRequest(created.id(), "CHICAGO", null)));
@@ -493,8 +480,8 @@ class LiteratureMainFlowIntegrationTest {
     @Test
     @DisplayName("管理端删除文献：级联清理分块/收藏/历史/笔记/引用，且非管理员不可调用")
     void adminDelete_purgesRelatedDataAndRequiresAdmin() {
+        LiteratureResponse created = createAsAdmin("级联删除测试文献");
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(literatureRequest("级联删除测试文献", "PRIVATE"));
         insertChunk(created.id(), 0, "级联删除测试分块：验证删除文献后不再残留分块。");
         favoriteService.favorite(created.id());
         readingHistoryService.upsert(created.id(), new ReadingHistoryRequest(1, 40, 120));
@@ -540,11 +527,21 @@ class LiteratureMainFlowIntegrationTest {
         userAccountMapper.insert(account);
     }
 
-    private LiteratureRequest literatureRequest(String title, String visibility) {
-        return new LiteratureRequest(title, "集成测试作者", "集成测试来源", 2024, "zh-CN",
-                CATEGORY_ID, visibility, null,
+    private LiteratureRequest literatureRequest(String title) {
+        return literatureRequest(title, "期刊论文", CATEGORY_ID);
+    }
+
+    private LiteratureRequest literatureRequest(String title, String literatureType, Long categoryId) {
+        return new LiteratureRequest(title, "集成测试作者", "集成测试来源", literatureType, categoryId,
+                LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1), "zh-CN", null,
                 "本文用于集成测试，关注混合检索与 RRF 融合排序在学术文献检索中的效果。",
                 "混合检索,RRF,集成测试");
+    }
+
+    /** 以管理员身份上传一条文献，返回创建结果；调用后 SecurityContext 停留在管理员。 */
+    private LiteratureResponse createAsAdmin(String title) {
+        authenticate(ADMIN_ID, UserRole.ADMIN);
+        return literatureService.create(literatureRequest(title));
     }
 
     private Literature insertLiterature(long uploaderId, String status, String visibility, String title) {
@@ -552,7 +549,9 @@ class LiteratureMainFlowIntegrationTest {
         literature.setTitle(title);
         literature.setAuthor("集成测试作者");
         literature.setSource("集成测试来源");
-        literature.setPublishYear(2024);
+        literature.setLiteratureType("期刊论文");
+        literature.setPublishDate(LocalDate.of(2024, 1, 1));
+        literature.setOnlinePublishDate(LocalDate.of(2024, 1, 1));
         literature.setLanguage("zh-CN");
         literature.setCategoryId(CATEGORY_ID);
         literature.setUploaderId(uploaderId);

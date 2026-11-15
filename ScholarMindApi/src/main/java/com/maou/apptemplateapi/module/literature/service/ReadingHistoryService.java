@@ -110,8 +110,6 @@ public class ReadingHistoryService {
                             readable && literature.getTitle() != null ? literature.getTitle() : "文献已删除或不可见",
                             readable ? literature.getAuthor() : null,
                             readable && literature.getCategoryId() != null ? categoryMap.get(literature.getCategoryId()) : null,
-                            readable ? literature.getStatus() : null,
-                            readable ? literature.getVisibility() : null,
                             history.getLastPage(),
                             history.getProgress(),
                             history.getReadDuration(),

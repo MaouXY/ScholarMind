@@ -2,23 +2,22 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  CircleCheck,
   DataAnalysis,
   DocumentAdd,
   Refresh,
   Search,
   SwitchButton,
-  Timer,
+  UploadFilled,
   User,
 } from '@element-plus/icons-vue'
 
 import { getAdminDashboard } from '@/api/admin'
 import {
-  approveLiterature,
+  createLiterature,
   deleteAdminLiterature,
+  listCategories,
   listLiteratures,
-  listPendingLiteratures,
-  rejectLiterature,
+  uploadLiteratureFile,
 } from '@/api/literature'
 import {
   createKnowledgeDocument,
@@ -26,28 +25,46 @@ import {
   rebuildKnowledgeDocument,
   updateKnowledgeDocument,
 } from '@/api/rag'
-import { displayCategoryName, displayStatusName, displayRoleName } from '@/utils/format'
+import { displayCategoryName, displayLiteratureType, displayRoleName } from '@/utils/format'
 import { emptyDashboard } from '@/utils/dashboard'
 import type { Id } from '@/types/auth'
 import type { AdminActiveUser, AdminDashboard } from '@/types/admin'
-import type { Literature } from '@/types/literature'
+import type { Literature, LiteratureCategory, LiteraturePayload } from '@/types/literature'
 import type { KnowledgeDocument, KnowledgeDocumentPayload } from '@/types/rag'
 
-const pending = ref<Literature[]>([])
 const knowledgeDocs = ref<KnowledgeDocument[]>([])
 const dashboard = ref<AdminDashboard>(emptyDashboard())
 const dashboardFailed = ref(false)
 const metrics = computed(() => dashboardFailed.value ? [] : overviewCards.value)
-const pendingFailed = ref(false)
 const knowledgeFailed = ref(false)
 const archiveFailed = ref(false)
-const activeTab = ref('review')
+const activeTab = ref('upload')
 const loadingDashboard = ref(false)
-const loadingPending = ref(false)
 const loadingKnowledge = ref(false)
 const knowledgeDrawer = ref(false)
 const savingKnowledge = ref(false)
 const editingKnowledgeId = ref<Id | null>(null)
+
+// 上传文献（客户 2026-11-15 口径：文献改由管理员统一上传，上传即发布）
+const categories = ref<LiteratureCategory[]>([])
+const literatureTypeOptions = ['期刊论文', '会议论文', '学位论文', '图书', '预印本', '其他']
+const uploadForm = reactive<LiteraturePayload>({
+  title: '',
+  author: '',
+  source: '',
+  literatureType: '期刊论文',
+  categoryId: undefined,
+  publishDate: '',
+  onlinePublishDate: '',
+  language: 'zh-CN',
+  fileId: undefined,
+  keywords: '',
+  abstractText: '',
+})
+const uploadingFile = ref(false)
+const uploadingName = ref('')
+/** 上传会同步触发索引重建 + AI 摘要，按 id 记录避免重复点击 */
+const publishing = ref(false)
 
 // 文献库管理（客户需求：管理中心添加「删除文献」）
 const archiveList = ref<Literature[]>([])
@@ -59,8 +76,6 @@ const archiveQuery = reactive({
   keyword: '',
 })
 const deletingId = ref<Id | null>(null)
-/** 审核通过要等索引重建 + AI 摘要，按 id 记 loading 以免重复点击 */
-const approvingId = ref<Id | null>(null)
 
 const dashboardQuery = reactive({
   days: 14,
@@ -78,8 +93,8 @@ const overviewCards = computed(() => {
   const item = dashboard.value.overview
   return [
     { label: '用户总数', value: item.userTotal, hint: `${item.studentTotal} 用户端账号`, icon: User },
-    { label: '文献总量', value: item.literatureTotal, hint: `${item.publishedLiteratureTotal} 已发布`, icon: DocumentAdd },
-    { label: '待审核', value: item.pendingReviewTotal, hint: `${item.privateLiteratureTotal} 私有文献`, icon: Timer },
+    { label: '文献总量', value: item.literatureTotal, hint: '均由管理员上传发布', icon: DocumentAdd },
+    { label: '原文文件', value: item.fileTotal, hint: '支持 PDF / 文本解析建索引', icon: UploadFilled },
   ]
 })
 
@@ -109,10 +124,6 @@ function openKnowledgeEdit(item: KnowledgeDocument) {
   knowledgeDrawer.value = true
 }
 
-function statusLabel(status: string) {
-  return displayStatusName(status)
-}
-
 /** 活跃分口径与后端 AdminStatisticsService#activeUsers 保持一致：上传×5 + 阅读×2 + 收藏×2 + 笔记×3 + 问答×4 */
 function activityBreakdown(item: AdminActiveUser) {
   return [
@@ -122,6 +133,91 @@ function activityBreakdown(item: AdminActiveUser) {
     `笔记 ${item.noteCount}×3`,
     `问答 ${item.qaCount}×4`,
   ].join(' + ')
+}
+
+function resetUploadForm() {
+  Object.assign(uploadForm, {
+    title: '',
+    author: '',
+    source: '',
+    literatureType: '期刊论文',
+    categoryId: undefined,
+    publishDate: '',
+    onlinePublishDate: '',
+    language: 'zh-CN',
+    fileId: undefined,
+    keywords: '',
+    abstractText: '',
+  })
+  uploadingName.value = ''
+}
+
+/** 原文是可选项：选文件后先传文件拿到 fileId，保存文献时一并提交 */
+async function pickUploadFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  uploadingFile.value = true
+  uploadingName.value = file.name
+  try {
+    const asset = await uploadLiteratureFile(file)
+    uploadForm.fileId = asset.id
+    ElMessage.success(`原文已上传：${asset.originalName}`)
+  } catch (error) {
+    uploadForm.fileId = undefined
+    uploadingName.value = ''
+    console.error(
+      'literature file upload failed, scenario=admin-upload-literature-file, fileName=%s',
+      file.name,
+      error,
+    )
+  } finally {
+    uploadingFile.value = false
+  }
+}
+
+function clearUploadFile() {
+  uploadForm.fileId = undefined
+  uploadingName.value = ''
+}
+
+async function submitUpload() {
+  if (!uploadForm.title.trim()) {
+    ElMessage.warning('请填写标题')
+    return
+  }
+  if (!uploadForm.categoryId) {
+    ElMessage.warning('请选择学科')
+    return
+  }
+  publishing.value = true
+  try {
+    // 上传即发布，后端在事务提交后同步跑索引重建 + AI 摘要，耗时可达数十秒
+    const created = await createLiterature({
+      ...uploadForm,
+      title: uploadForm.title.trim(),
+      author: uploadForm.author?.trim() || undefined,
+      source: uploadForm.source?.trim() || undefined,
+      publishDate: uploadForm.publishDate || null,
+      onlinePublishDate: uploadForm.onlinePublishDate || null,
+      keywords: uploadForm.keywords?.trim() || undefined,
+      abstractText: uploadForm.abstractText?.trim() || undefined,
+    })
+    ElMessage.success(
+      created.fileId ? '文献已上传，索引与 AI 摘要已自动生成' : '文献已上传，题录索引与 AI 摘要已自动生成',
+    )
+    resetUploadForm()
+    await Promise.all([fetchDashboard(), fetchArchive()])
+  } catch (error) {
+    console.error(
+      'literature upload failed, scenario=admin-upload-literature, title=%s',
+      uploadForm.title,
+      error,
+    )
+  } finally {
+    publishing.value = false
+  }
 }
 
 async function fetchDashboard() {
@@ -143,18 +239,12 @@ async function fetchDashboard() {
   }
 }
 
-async function fetchPending() {
-  loadingPending.value = true
-  pendingFailed.value = false
+async function fetchCategories() {
   try {
-    const result = await listPendingLiteratures({ page: 1, size: 20 })
-    pending.value = result.items
+    categories.value = await listCategories()
   } catch (error) {
-    console.error('pending list failed, scenario=admin-pending-literatures', error)
-    pendingFailed.value = true
-    pending.value = []
-  } finally {
-    loadingPending.value = false
+    console.error('category list failed, scenario=admin-literature-categories', error)
+    categories.value = []
   }
 }
 
@@ -170,46 +260,6 @@ async function fetchKnowledge() {
     knowledgeDocs.value = []
   } finally {
     loadingKnowledge.value = false
-  }
-}
-
-async function approve(item: Literature) {
-  if (approvingId.value) return
-  approvingId.value = item.id
-  try {
-    // 审核通过会同步触发索引重建与 AI 摘要生成，耗时可达数十秒，按钮需要 loading 防止重复提交
-    await approveLiterature(item.id)
-    ElMessage.success('文献已发布，索引与 AI 摘要已自动生成')
-    await Promise.all([fetchPending(), fetchDashboard()])
-  } catch (error) {
-    console.error(
-      'approve failed, scenario=admin-approve-literature, literatureId=%s',
-      item.id,
-      error,
-    )
-  } finally {
-    approvingId.value = null
-  }
-}
-
-async function reject(item: Literature) {
-  try {
-    const { value } = await ElMessageBox.prompt('请输入退回原因', '退回文献', {
-      confirmButtonText: '退回',
-      cancelButtonText: '取消',
-      inputPattern: /.+/,
-      inputErrorMessage: '退回原因不能为空',
-    })
-    await rejectLiterature(item.id, value)
-    ElMessage.success('文献已退回')
-    await Promise.all([fetchPending(), fetchDashboard()])
-  } catch (error) {
-    if (error === 'cancel') return
-    console.error(
-      'reject failed, scenario=admin-reject-literature, literatureId=%s',
-      item.id,
-      error,
-    )
   }
 }
 
@@ -304,7 +354,7 @@ async function removeFromArchive(item: Literature) {
     if (archiveList.value.length === 1 && archiveQuery.page > 1) {
       archiveQuery.page -= 1
     }
-    await Promise.all([fetchArchive(), fetchPending(), fetchDashboard()])
+    await Promise.all([fetchArchive(), fetchDashboard()])
   } catch (error) {
     console.error(
       'archive delete failed, scenario=admin-delete-literature, literatureId=%s',
@@ -317,7 +367,7 @@ async function removeFromArchive(item: Literature) {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchDashboard(), fetchPending(), fetchKnowledge(), fetchArchive()])
+  await Promise.all([fetchDashboard(), fetchCategories(), fetchKnowledge(), fetchArchive()])
 })
 </script>
 
@@ -356,58 +406,111 @@ onMounted(async () => {
     </section>
 
     <el-tabs v-model="activeTab" class="management-tabs">
-      <el-tab-pane label="待审核" name="review" />
+      <el-tab-pane label="上传文献" name="upload" />
       <el-tab-pane label="文献管理" name="archive" />
       <el-tab-pane label="知识库" name="knowledge" />
       <el-tab-pane label="活跃概况" name="activity" />
     </el-tabs>
     <div class="admin-layout admin-layout--stage5">
-      <section v-show="activeTab === 'review'" class="glass-panel review-panel" v-loading="loadingPending">
+      <section v-show="activeTab === 'upload'" class="glass-panel upload-panel" v-loading="publishing">
         <div class="panel-heading">
           <div>
-
-            <h3>公开文献审核</h3>
+            <p class="panel__eyebrow">管理员统一上传</p>
+            <h3>上传文献</h3>
+            <p class="panel-caption">
+              提交即发布，系统自动重建检索索引并生成 AI 摘要；原文为可选项，未上传时按题录建索引。
+            </p>
           </div>
-          <el-button :icon="Refresh" plain :loading="loadingPending" @click="fetchPending">
-            刷新
+          <el-button plain @click="resetUploadForm">重置</el-button>
+        </div>
+
+        <el-form label-position="top" class="upload-form">
+          <el-form-item label="标题" required>
+            <el-input v-model="uploadForm.title" maxlength="255" placeholder="文献标题" />
+          </el-form-item>
+          <div class="filter-grid">
+            <el-form-item label="作者">
+              <el-input v-model="uploadForm.author" maxlength="255" placeholder="多位作者用分号分隔" />
+            </el-form-item>
+            <el-form-item label="来源">
+              <el-input v-model="uploadForm.source" maxlength="255" placeholder="期刊 / 会议 / 出版社" />
+            </el-form-item>
+          </div>
+          <div class="filter-grid">
+            <el-form-item label="文献类别">
+              <el-select v-model="uploadForm.literatureType" placeholder="选择文献类别">
+                <el-option
+                  v-for="type in literatureTypeOptions"
+                  :key="type"
+                  :label="type"
+                  :value="type"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="学科" required>
+              <el-select v-model="uploadForm.categoryId" placeholder="选择学科">
+                <el-option
+                  v-for="category in categories"
+                  :key="category.id"
+                  :label="displayCategoryName(category.name)"
+                  :value="category.id"
+                />
+              </el-select>
+            </el-form-item>
+          </div>
+          <div class="filter-grid">
+            <el-form-item label="发表时间">
+              <el-date-picker
+                v-model="uploadForm.publishDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="选择发表日期"
+              />
+            </el-form-item>
+            <el-form-item label="在线公开时间">
+              <el-date-picker
+                v-model="uploadForm.onlinePublishDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="选择在线公开日期"
+              />
+            </el-form-item>
+          </div>
+          <el-form-item label="关键词">
+            <el-input v-model="uploadForm.keywords" maxlength="512" placeholder="用英文逗号分隔" />
+          </el-form-item>
+          <el-form-item label="摘要">
+            <el-input v-model="uploadForm.abstractText" type="textarea" :rows="4" placeholder="文献摘要" />
+          </el-form-item>
+
+          <el-form-item label="原文（可选）">
+            <div class="upload-field">
+              <label class="upload-drop">
+                <el-icon><UploadFilled /></el-icon>
+                <span v-if="uploadingFile">正在上传 {{ uploadingName }}…</span>
+                <span v-else-if="uploadForm.fileId">已绑定原文：{{ uploadingName }}</span>
+                <span v-else>选择 PDF 或文本文件</span>
+                <input
+                  type="file"
+                  accept=".pdf,.txt,application/pdf,text/plain"
+                  :disabled="uploadingFile || publishing"
+                  @change="pickUploadFile"
+                />
+              </label>
+              <el-button v-if="uploadForm.fileId" plain @click="clearUploadFile">移除原文</el-button>
+            </div>
+          </el-form-item>
+
+          <el-button
+            class="wide-action"
+            type="primary"
+            :loading="publishing"
+            :disabled="uploadingFile"
+            @click="submitUpload"
+          >
+            {{ publishing ? '正在建索引并生成摘要…' : '上传并发布' }}
           </el-button>
-        </div>
-        <div class="approval-list">
-          <article v-for="item in pending" :key="item.id" class="approval-card">
-            <div>
-          <p class="panel__eyebrow">{{ displayCategoryName(item.categoryName) }}</p>
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.abstractText || '暂无摘要。' }}</p>
-              <div class="paper-card__meta">
-                <span>{{ item.author || '未知作者' }}</span>
-                <span>{{ item.source || '未填写来源' }}</span>
-                <span>{{ item.publishYear || '年份未知' }}</span>
-              </div>
-            </div>
-            <div class="approval-actions">
-              <el-button
-                :icon="CircleCheck"
-                type="success"
-                :loading="approvingId === item.id"
-                :disabled="Boolean(approvingId) && approvingId !== item.id"
-                @click="approve(item)"
-              >
-                {{ approvingId === item.id ? '正在生成摘要…' : '通过' }}
-              </el-button>
-              <el-button
-                type="danger"
-                plain
-                :disabled="Boolean(approvingId)"
-                @click="reject(item)"
-              >
-                退回
-              </el-button>
-            </div>
-          </article>
-          <el-empty v-if="!pending.length && !loadingPending" :description="pendingFailed ? '审核队列加载失败' : '暂无待审核文献'">
-            <el-button v-if="pendingFailed" @click="fetchPending">重试</el-button>
-          </el-empty>
-        </div>
+        </el-form>
       </section>
 
       <section v-show="activeTab === 'knowledge'" class="glass-panel knowledge-panel" v-loading="loadingKnowledge">
@@ -467,16 +570,14 @@ onMounted(async () => {
       <el-table v-loading="archiveLoading" :data="archiveList" row-key="id" stripe>
         <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
         <el-table-column prop="author" label="作者" width="140" show-overflow-tooltip />
-        <el-table-column label="分类" width="150">
+        <el-table-column label="学科" width="150">
           <template #default="{ row }">{{ displayCategoryName(row.categoryName) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">{{ displayStatusName(row.status) }}</template>
+        <el-table-column label="文献类别" width="120">
+          <template #default="{ row }">{{ displayLiteratureType(row.literatureType) }}</template>
         </el-table-column>
-        <el-table-column label="可见性" width="100">
-          <template #default="{ row }">
-            {{ row.visibility === 'PUBLIC' ? '公开' : '私有' }}
-          </template>
+        <el-table-column label="出版日期" width="130">
+          <template #default="{ row }">{{ row.publishDate || '—' }}</template>
         </el-table-column>
         <el-table-column label="操作" width="110" align="right">
           <template #default="{ row }">
@@ -526,7 +627,7 @@ onMounted(async () => {
               <strong>{{ item.title }}</strong>
               <span>{{ item.author || '未知作者' }} · {{ displayCategoryName(item.categoryName) }}</span>
             </div>
-            <small>{{ statusLabel(item.status) }} · 阅读 {{ item.readCount }} · 收藏 {{ item.favoriteCount }} · 笔记 {{ item.noteCount }}</small>
+            <small>{{ displayLiteratureType(item.literatureType) }} · 阅读 {{ item.readCount }} · 收藏 {{ item.favoriteCount }} · 笔记 {{ item.noteCount }}</small>
           </article>
         </div>
       </div>

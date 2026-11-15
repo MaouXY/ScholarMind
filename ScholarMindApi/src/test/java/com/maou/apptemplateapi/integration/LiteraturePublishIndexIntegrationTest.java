@@ -29,6 +29,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -109,34 +110,28 @@ class LiteraturePublishIndexIntegrationTest {
     }
 
     @Test
-    @DisplayName("审核通过后自动重建索引并顺带生成摘要：无需前端点击，分块与摘要直接落库")
-    void approve_triggersIndexRebuildAutomatically() {
-        authenticate(uploaderId, UserRole.STUDENT);
-        LiteratureResponse created = literatureService.create(new LiteratureRequest(
-                "审核通过后自动重建索引", "集成测试作者", "集成测试来源", 2024, "zh-CN",
-                categoryId, "PUBLIC", null,
-                "该文献用于验证审核通过后自动重建索引，正文来自题录兜底，包含混合检索与 RRF 融合等关键词。",
-                "自动重建索引,RRF,集成测试"));
-        assertEquals("PENDING_REVIEW", created.status());
-        assertTrue(chunksOf(created.id()).isEmpty(), "审核前不应有分块");
-        assertNull(literatureMapper.selectById(created.id()).getAiSummary(), "审核前不应有 AI 摘要");
-
+    @DisplayName("管理员上传后自动重建索引并顺带生成摘要：无需前端点击，分块与摘要直接落库")
+    void adminUpload_triggersIndexRebuildAutomatically() {
         authenticate(adminId, UserRole.ADMIN);
-        LiteratureResponse published = literatureService.approve(created.id());
-        assertEquals("PUBLISHED", published.status());
+        LiteratureResponse created = literatureService.create(new LiteratureRequest(
+                "管理员上传后自动重建索引", "集成测试作者", "集成测试来源", "期刊论文",
+                categoryId, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1), "zh-CN", null,
+                "该文献用于验证管理员上传后自动重建索引，正文来自题录兜底，包含混合检索与 RRF 融合等关键词。",
+                "自动重建索引,RRF,集成测试"));
+        assertEquals(adminId, created.uploaderId(), "上传者应记为当前管理员");
 
-        // AFTER_COMMIT 监听器在 approve 返回前同步执行完毕，无需等待
+        // AFTER_COMMIT 监听器在 create 返回前同步执行完毕，无需等待
         List<LiteratureChunk> chunks = chunksOf(created.id());
-        assertFalse(chunks.isEmpty(), "审核通过后应自动生成分块");
+        assertFalse(chunks.isEmpty(), "上传后应自动生成分块");
         Literature stored = literatureMapper.selectById(created.id());
         assertEquals("INDEXED", stored.getParseStatus());
         assertNotNull(stored.getParseError(), "题录兜底时应写入兜底原因，便于排查");
         assertTrue(chunks.stream().allMatch(chunk -> "DB_ONLY".equals(chunk.getVectorStoreStatus())),
                 "Milvus 未启用时向量状态应为 DB_ONLY");
 
-        // 客户 2026-11-12 拍板：审核通过时顺带生成 AI 摘要。AiClient 是 mock（返回 null），
+        // 客户 2026-11-12 拍板：文献入库时顺带生成 AI 摘要。AiClient 是 mock（返回 null），
         // 两次尝试都失败后走兜底摘要，因此这里是 FALLBACK 而不是 SUCCESS。
-        assertNotNull(stored.getAiSummary(), "审核通过后应自动写入 AI 摘要");
+        assertNotNull(stored.getAiSummary(), "上传后应自动写入 AI 摘要");
         assertTrue(stored.getAiSummary().contains("background"), "兜底摘要也应是结构化 JSON");
         assertNotNull(stored.getSummaryUpdatedAt(), "摘要生成时间不应为空");
         assertEquals("FALLBACK", stored.getSummaryStatus(), "AI 输出不可用时应标记 FALLBACK");

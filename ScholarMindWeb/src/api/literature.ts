@@ -45,19 +45,17 @@ export function listLiteratureChunks(id: Id) {
 }
 
 export function createLiterature(payload: LiteraturePayload) {
-  return request.post<never, Literature>('/literatures', payload)
+  // 上传即发布，后端在上传事务提交后同步触发索引重建与 AI 摘要生成，
+  // 耗时可达数秒到数十秒，用默认 15 秒会误报超时。
+  return request.post<never, Literature>('/literatures', payload, {
+    timeout: AI_REQUEST_TIMEOUT,
+  })
 }
 
 export function updateLiterature(id: Id, payload: LiteraturePayload) {
-  return request.put<never, Literature>(`/literatures/${id}`, payload)
-}
-
-export function deleteLiterature(id: Id) {
-  return request.delete<never, void>(`/literatures/${id}`)
-}
-
-export function submitLiterature(id: Id) {
-  return request.post<never, Literature>(`/literatures/${id}/submit`)
+  return request.put<never, Literature>(`/literatures/${id}`, payload, {
+    timeout: AI_REQUEST_TIMEOUT,
+  })
 }
 
 export function markLiteratureRead(id: Id) {
@@ -200,29 +198,6 @@ export function listFavorites(params: { page: number; size: number }) {
 
 export function listCategories() {
   return request.get<never, LiteratureCategory[]>('/literature-categories')
-}
-
-export function listPendingLiteratures(params: { page: number; size: number }) {
-  return request.get<never, PageResult<Literature>>(
-    '/admin/literatures/pending',
-    {
-      params,
-    },
-  )
-}
-
-export function approveLiterature(id: Id) {
-  // 审核通过会同步触发索引重建与 AI 摘要生成（P3-1 + 摘要自动生成），耗时可达秒级甚至数十秒，
-  // 沿用默认 15 秒会在 AI 慢时误报超时。
-  return request.post<never, Literature>(`/admin/literatures/${id}/approve`, undefined, {
-    timeout: AI_REQUEST_TIMEOUT,
-  })
-}
-
-export function rejectLiterature(id: Id, reason: string) {
-  return request.post<never, Literature>(`/admin/literatures/${id}/reject`, {
-    reason,
-  })
 }
 
 /** 管理端删除文献：后端会级联清理分块、收藏、阅读历史、笔记、引用、问答、附件与向量 */

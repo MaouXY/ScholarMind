@@ -93,9 +93,7 @@ public class AdminOperationReportService {
                 .append(", 用户端=").append(overview.studentTotal())
                 .append(", 启用账号=").append(overview.activeUserTotal()).append('\n');
         builder.append("文献: 总数=").append(overview.literatureTotal())
-                .append(", 已发布=").append(overview.publishedLiteratureTotal())
-                .append(", 待审核=").append(overview.pendingReviewTotal())
-                .append(", 私有=").append(overview.privateLiteratureTotal()).append('\n');
+                .append(", 来源=管理员统一上传").append('\n');
         builder.append("阅读沉淀: 收藏=").append(overview.favoriteTotal())
                 .append(", 阅读历史=").append(overview.readingHistoryTotal())
                 .append(", 笔记=").append(overview.readingNoteTotal())
@@ -122,7 +120,7 @@ public class AdminOperationReportService {
                         .append(", 下载=").append(item.downloadCount())
                         .append(", 收藏=").append(item.favoriteCount())
                         .append(", 笔记=").append(item.noteCount())
-                        .append(", 状态=").append(item.status()).append("）\n");
+                        .append(", 类别=").append(item.literatureType()).append("）\n");
             }
         }
         if (dashboard.activeUsers() != null && !dashboard.activeUsers().isEmpty()) {
@@ -171,7 +169,6 @@ public class AdminOperationReportService {
         long qaEvents = sumTrend(dashboard.trends(), AdminTrendPointResponse::qaEvents);
         double aiSuccessRate = overview.aiSuccessRate() == null ? 0 : overview.aiSuccessRate();
         long avgAiDuration = overview.avgAiDurationMs() == null ? 0 : overview.avgAiDurationMs();
-        long pendingReview = overview.pendingReviewTotal() == null ? 0 : overview.pendingReviewTotal();
         long literatureTotal = overview.literatureTotal() == null ? 0 : overview.literatureTotal();
         long favoriteTotal = overview.favoriteTotal() == null ? 0 : overview.favoriteTotal();
         long readingNoteTotal = overview.readingNoteTotal() == null ? 0 : overview.readingNoteTotal();
@@ -180,8 +177,8 @@ public class AdminOperationReportService {
         List<String> highlights = new ArrayList<>();
         highlights.add("最近 %d 天新增用户 %d 人、新增文献 %d 篇，阅读事件 %d 次、问答 %d 次。"
                 .formatted(days, newUsers, newLiteratures, readingEvents, qaEvents));
-        highlights.add("平台累计文献 %d 篇，其中已发布 %d 篇，待审核 %d 篇。"
-                .formatted(literatureTotal, overview.publishedLiteratureTotal(), pendingReview));
+        highlights.add("平台累计文献 %d 篇，均由管理员上传发布，覆盖学科 %d 类。"
+                .formatted(literatureTotal, dashboard.literatureCategoryStats() == null ? 0 : dashboard.literatureCategoryStats().size()));
         highlights.add("阅读沉淀累计：收藏 %d、阅读笔记 %d、问答记录 %d。"
                 .formatted(favoriteTotal, readingNoteTotal, qaTotal));
         highlights.add("AI 任务成功率 %.2f%%，平均耗时 %d ms。".formatted(aiSuccessRate, avgAiDuration));
@@ -190,9 +187,6 @@ public class AdminOperationReportService {
         }
 
         List<String> risks = new ArrayList<>();
-        if (pendingReview > 0) {
-            risks.add("有 %d 篇公开文献积压在待审核队列，建议当天处理，避免影响内容上线节奏。".formatted(pendingReview));
-        }
         if (overview.aiTaskTotal() != null && overview.aiTaskTotal() > 0 && aiSuccessRate < 95) {
             risks.add("AI 任务成功率 %.2f%% 低于 95%% 目标，建议检查模型配额、提示词与结构化输出校验链路。".formatted(aiSuccessRate));
         }
@@ -206,13 +200,10 @@ public class AdminOperationReportService {
             risks.add("尚无问答记录，需确认文献分块索引与向量检索是否已成功构建。");
         }
         if (risks.isEmpty()) {
-            risks.add("当前指标未发现明显风险，建议持续观察审核积压、AI 成功率与阅读活跃度。");
+            risks.add("当前指标未发现明显风险，建议持续观察 AI 成功率与阅读活跃度。");
         }
 
         List<String> suggestions = new ArrayList<>();
-        if (pendingReview > 0) {
-            suggestions.add("优先清理待审核队列，可结合管理端统计看板按提交时间排序批量处理。");
-        }
         if (keywords != null && !keywords.isEmpty()) {
             suggestions.add("围绕热门关键词补充知识库文档与专题文献包，提升检索命中率。");
         }
@@ -224,9 +215,9 @@ public class AdminOperationReportService {
 
         List<StructuredOperationReport.Section> sections = new ArrayList<>();
         sections.add(new StructuredOperationReport.Section("一、平台整体规模",
-                "累计用户 %d 人（用户端 %d 人），累计文献 %d 篇，已发布 %d 篇，文件资产 %d 个，总大小 %d 字节。"
+                "累计用户 %d 人（用户端 %d 人），累计文献 %d 篇，文件资产 %d 个，总大小 %d 字节。"
                         .formatted(overview.userTotal(), overview.studentTotal(),
-                                literatureTotal, overview.publishedLiteratureTotal(), overview.fileTotal(), fileSizeBytesAsLong(overview))));
+                                literatureTotal, overview.fileTotal(), fileSizeBytesAsLong(overview))));
         sections.add(new StructuredOperationReport.Section("二、窗口内增长与阅读活跃度",
                 "最近 %d 天新增用户 %d 人、新增文献 %d 篇，产生阅读事件 %d 次、问答 %d 次、AI 任务 %d 次。"
                         .formatted(days, newUsers, newLiteratures, readingEvents, qaEvents,
@@ -243,8 +234,8 @@ public class AdminOperationReportService {
         sections.add(new StructuredOperationReport.Section("五、风险与后续行动",
                 String.join("；", risks) + " " + String.join("；", suggestions)));
 
-        String summary = "最近 %d 天平台运行平稳：新增用户 %d 人、新增文献 %d 篇，AI 任务成功率 %.2f%%，待审核文献 %d 篇。"
-                .formatted(days, newUsers, newLiteratures, aiSuccessRate, pendingReview);
+        String summary = "最近 %d 天平台运行平稳：新增用户 %d 人、新增文献 %d 篇，AI 任务成功率 %.2f%%。"
+                .formatted(days, newUsers, newLiteratures, aiSuccessRate);
         return new StructuredOperationReport(summary, highlights, risks, suggestions, sections);
     }
 

@@ -4,19 +4,15 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Connection,
-  DocumentAdd,
-  EditPen,
   InfoFilled,
   Notebook,
   Reading,
   Search,
   Star,
   StarFilled,
-  UploadFilled,
 } from '@element-plus/icons-vue'
 
 import {
-  createLiterature,
   createReadingNote,
   deleteReadingNote,
   favoriteLiterature,
@@ -29,31 +25,29 @@ import {
   markLiteratureRead,
   naturalLanguageSearch,
   semanticSearch,
-  submitLiterature,
   unfavoriteLiterature,
-  updateLiterature,
   updateReadingNote,
-  uploadLiteratureFile,
 } from '@/api/literature'
-import { displayCategoryName } from '@/utils/format'
-import { getStoredUser } from '@/utils/storage'
+import { displayCategoryName, displayLiteratureType } from '@/utils/format'
 import '@/styles/literature-ext.css'
 import type {
   Id,
   Literature,
   LiteratureCategory,
   LiteratureDetail,
-  LiteraturePayload,
   LiteratureReferenceChunk,
   LiteratureSearchResult,
-  LiteratureStatus,
-  LiteratureVisibility,
+  LiteratureType,
   ReadingHistory,
   ReadingNote,
   ReadingNotePayload,
 } from '@/types/literature'
 
 const categories = ref<LiteratureCategory[]>([])
+
+// 文献类别枚举：与后端 LiteratureRequest 的 @Pattern 保持一致
+const literatureTypeOptions = ['期刊论文', '会议论文', '学位论文', '图书', '预印本', '其他']
+
 const literatures = ref<Literature[]>([])
 const selected = ref<Literature | null>(null)
 const detail = ref<LiteratureDetail | null>(null)
@@ -69,13 +63,9 @@ const detailFailed = ref(false)
 const notesFailed = ref(false)
 const previewVisible = ref(false)
 const lastSearch = ref<'keyword' | 'smart'>('keyword')
-const saving = ref(false)
-const uploading = ref(false)
 const noteSaving = ref(false)
 const ragSearching = ref(false)
-const editorVisible = ref(false)
 const noteDrawerVisible = ref(false)
-const editorMode = ref<'create' | 'edit'>('create')
 const noteMode = ref<'create' | 'edit'>('create')
 const favorited = ref(false)
 const favoriteLoading = ref(false)
@@ -99,21 +89,7 @@ const query = reactive({
   size: 8,
   keyword: '',
   categoryId: undefined as Id | undefined,
-  status: undefined as LiteratureStatus | undefined,
-  visibility: undefined as LiteratureVisibility | undefined,
-})
-
-const form = reactive<LiteraturePayload>({
-  title: '',
-  author: '',
-  source: '',
-  publishYear: new Date().getFullYear(),
-  language: 'zh-CN',
-  categoryId: undefined,
-  visibility: 'PRIVATE',
-  fileId: undefined,
-  abstractText: '',
-  keywords: '',
+  literatureType: undefined as LiteratureType | string | undefined,
 })
 
 const ragForm = reactive({
@@ -135,39 +111,11 @@ const currentLiterature = computed(
   () => detail.value?.literature ?? selected.value,
 )
 
-const currentUserId = ref(getStoredUser()?.id ?? '')
-
-// 仅当前登录用户上传的文献才展示「编辑信息 / 提交审核」
-const isOwnLiterature = computed(() => {
-  const uploaderId = currentLiterature.value?.uploaderId
-  return Boolean(
-    uploaderId &&
-      currentUserId.value &&
-      String(uploaderId) === String(currentUserId.value),
-  )
-})
-
 const ragModeLabel = computed(() => {
   if (ragForm.mode === 'semantic') return '语义向量'
   if (ragForm.mode === 'hybrid') return '混合检索'
   return '自然语言'
 })
-
-function statusLabel(status?: LiteratureStatus) {
-  const labels: Record<LiteratureStatus, string> = {
-    DRAFT: '草稿',
-    PENDING_REVIEW: '审核中',
-    PUBLISHED: '已发布',
-    REJECTED: '已退回',
-  }
-  return status ? labels[status] : '全部'
-}
-
-function visibilityLabel(visibility?: LiteratureVisibility) {
-  if (visibility === 'PUBLIC') return '公开'
-  if (visibility === 'PRIVATE') return '私有'
-  return '全部'
-}
 
 type RetrievalBadge = {
   label: string
@@ -284,36 +232,6 @@ async function loadReadingHistory(literatureId: Id) {
   }
 }
 
-function resetForm() {
-  Object.assign(form, {
-    title: '',
-    author: '',
-    source: '',
-    publishYear: new Date().getFullYear(),
-    language: 'zh-CN',
-    categoryId: undefined,
-    visibility: 'PRIVATE',
-    fileId: undefined,
-    abstractText: '',
-    keywords: '',
-  })
-}
-
-function fillForm(item: Literature) {
-  Object.assign(form, {
-    title: item.title,
-    author: item.author,
-    source: item.source,
-    publishYear: item.publishYear,
-    language: item.language || 'zh-CN',
-    categoryId: item.categoryId ?? undefined,
-    visibility: item.visibility,
-    fileId: item.fileId ?? undefined,
-    abstractText: item.abstractText,
-    keywords: item.keywords,
-  })
-}
-
 function resetNoteForm() {
   Object.assign(noteForm, {
     literatureId: currentLiterature.value?.id ?? '',
@@ -357,10 +275,10 @@ async function fetchLiteratures() {
     total.value = result.total
   } catch (error) {
     console.error(
-      'literature list failed, scenario=literature-search, keyword=%s, categoryId=%s, status=%s',
+      'literature list failed, scenario=literature-search, keyword=%s, categoryId=%s, literatureType=%s',
       query.keyword,
       query.categoryId,
-      query.status,
+      query.literatureType,
       error,
     )
     listFailed.value = true
@@ -473,19 +391,6 @@ async function chooseLiterature(item: Literature) {
   }
 }
 
-function openCreate() {
-  editorMode.value = 'create'
-  resetForm()
-  editorVisible.value = true
-}
-
-function openEdit() {
-  if (!currentLiterature.value) return
-  editorMode.value = 'edit'
-  fillForm(currentLiterature.value)
-  editorVisible.value = true
-}
-
 function openNoteCreate() {
   if (!currentLiterature.value) return
   noteMode.value = 'create'
@@ -498,51 +403,6 @@ function openNoteEdit(note: ReadingNote) {
   noteMode.value = 'edit'
   fillNoteForm(note)
   noteDrawerVisible.value = true
-}
-
-async function saveLiterature() {
-  if (!form.title.trim()) {
-    ElMessage.warning('请填写文献标题')
-    return
-  }
-
-  saving.value = true
-  try {
-    const saved =
-      editorMode.value === 'edit' && currentLiterature.value
-        ? await updateLiterature(currentLiterature.value.id, form)
-        : await createLiterature(form)
-    selected.value = saved
-    editorVisible.value = false
-    ElMessage.success('文献已保存')
-    await fetchLiteratures()
-    await chooseLiterature(saved)
-  } catch (error) {
-    console.error(
-      'literature save failed, scenario=literature-save, mode=%s, literatureId=%s, title=%s',
-      editorMode.value,
-      currentLiterature.value?.id,
-      form.title,
-      error,
-    )
-  } finally {
-    saving.value = false
-  }
-}
-
-async function submitCurrent() {
-  if (!currentLiterature.value) return
-  try {
-    selected.value = await submitLiterature(currentLiterature.value.id)
-    ElMessage.success('已提交审核')
-    await fetchLiteratures()
-  } catch (error) {
-    console.error(
-      'literature submit failed, scenario=literature-submit, literatureId=%s',
-      currentLiterature.value.id,
-      error,
-    )
-  }
 }
 
 async function toggleFavorite() {
@@ -633,29 +493,6 @@ async function removeNote(note: ReadingNote) {
   }
 }
 
-async function handleNativeFile(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  uploading.value = true
-  try {
-    const uploaded = await uploadLiteratureFile(file)
-    form.fileId = uploaded.id
-    ElMessage.success('文件已上传并绑定到表单')
-  } catch (error) {
-    console.error(
-      'file upload failed, scenario=literature-file-upload, filename=%s, size=%s',
-      file.name,
-      file.size,
-      error,
-    )
-  } finally {
-    uploading.value = false
-    input.value = ''
-  }
-}
-
 onMounted(async () => {
   await fetchCategories()
   await fetchLiteratures()
@@ -673,9 +510,6 @@ onMounted(async () => {
 
             <h3>检索条件</h3>
           </div>
-          <el-button :icon="DocumentAdd" type="primary" @click="openCreate">
-            上传文献
-          </el-button>
         </div>
 
         <el-form label-position="top">
@@ -702,23 +536,16 @@ onMounted(async () => {
               />
             </el-select>
           </el-form-item>
-          <div class="filter-grid">
-            <el-form-item label="可见性">
-              <el-select v-model="query.visibility" clearable>
-                <el-option label="全部" value="" />
-                <el-option label="公开" value="PUBLIC" />
-                <el-option label="私有" value="PRIVATE" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="状态">
-              <el-select v-model="query.status" clearable>
-                <el-option label="草稿" value="DRAFT" />
-                <el-option label="审核中" value="PENDING_REVIEW" />
-                <el-option label="已发布" value="PUBLISHED" />
-                <el-option label="已退回" value="REJECTED" />
-              </el-select>
-            </el-form-item>
-          </div>
+          <el-form-item label="文献类别">
+            <el-select v-model="query.literatureType" clearable placeholder="全部类别">
+              <el-option
+                v-for="option in literatureTypeOptions"
+                :key="option"
+                :label="option"
+                :value="option"
+              />
+            </el-select>
+          </el-form-item>
           <el-button
             type="primary"
             class="wide-action"
@@ -814,20 +641,19 @@ onMounted(async () => {
         >
           <div class="paper-card__status">
             <el-tag size="small" effect="plain">{{
-              statusLabel(item.status)
+              displayLiteratureType(item.literatureType)
             }}</el-tag>
-            <span>{{ visibilityLabel(item.visibility) }}</span>
           </div>
           <h3>{{ item.title }}</h3>
           <p>
             {{
-              item.abstractText || '暂无摘要，建议上传 PDF 后补充摘要和关键词。'
+              item.abstractText || '暂无摘要。'
             }}
           </p>
           <div class="paper-card__meta">
             <span>{{ item.author || '未知作者' }}</span>
             <span>{{ item.source || '未填写来源' }}</span>
-            <span>{{ item.publishYear || '年份未知' }}</span>
+            <span>{{ item.publishDate || '出版日期未知' }}</span>
           </div>
           <div class="paper-card__actions">
             <el-button text type="primary" @click.stop="router.push(`/student/literature/${item.id}/read`)">在线阅读</el-button>
@@ -915,18 +741,6 @@ onMounted(async () => {
             <el-button :icon="Reading" @click="openLiteraturePage('read')"
               >在线阅读</el-button
             >
-            <template v-if="isOwnLiterature">
-              <el-button :icon="EditPen" plain @click="openEdit"
-                >编辑信息</el-button
-              >
-              <el-button
-                plain
-                :disabled="currentLiterature.visibility !== 'PUBLIC'"
-                @click="submitCurrent"
-              >
-                提交审核
-              </el-button>
-            </template>
           </div>
 
           <article class="reader-paper" v-loading="detailLoading">
@@ -953,11 +767,19 @@ onMounted(async () => {
                   <dd>{{ currentLiterature.author || '—' }}</dd>
                 </div>
                 <div class="detail-info__row">
-                  <dt>年份</dt>
-                  <dd>{{ currentLiterature.publishYear || '—' }}</dd>
+                  <dt>文献类别</dt>
+                  <dd>{{ displayLiteratureType(currentLiterature.literatureType) }}</dd>
                 </div>
                 <div class="detail-info__row">
-                  <dt>分类</dt>
+                  <dt>出版日期</dt>
+                  <dd>{{ currentLiterature.publishDate || '—' }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>在线公开</dt>
+                  <dd>{{ currentLiterature.onlinePublishDate || '—' }}</dd>
+                </div>
+                <div class="detail-info__row">
+                  <dt>学科</dt>
                   <dd>{{ categoryNameText }}</dd>
                 </div>
                 <div class="detail-info__row">
@@ -1036,83 +858,6 @@ onMounted(async () => {
       </section>
       </el-drawer>
     </div>
-
-    <el-drawer
-      v-model="editorVisible"
-      :title="editorMode === 'create' ? '上传文献' : '编辑文献'"
-      size="520px"
-    >
-      <el-form label-position="top">
-        <el-form-item label="标题">
-          <el-input v-model="form.title" />
-        </el-form-item>
-        <div class="filter-grid">
-          <el-form-item label="作者">
-            <el-input v-model="form.author" />
-          </el-form-item>
-          <el-form-item label="年份">
-            <el-input-number
-              v-model="form.publishYear"
-              :min="1900"
-              :max="2100"
-            />
-          </el-form-item>
-        </div>
-        <el-form-item label="来源">
-          <el-input v-model="form.source" />
-        </el-form-item>
-        <div class="filter-grid">
-          <el-form-item label="分类">
-            <el-select
-              v-model="form.categoryId"
-              clearable
-              placeholder="选择分类"
-            >
-              <el-option
-                v-for="category in categories"
-                :key="category.id"
-                :label="displayCategoryName(category.name)"
-                :value="category.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="可见性">
-            <el-segmented
-              v-model="form.visibility"
-              :options="[
-                { label: '私有', value: 'PRIVATE' },
-                { label: '公开', value: 'PUBLIC' },
-              ]"
-            />
-          </el-form-item>
-        </div>
-        <el-form-item label="关键词">
-          <el-input v-model="form.keywords" placeholder="用英文逗号分隔" />
-        </el-form-item>
-        <el-form-item label="摘要">
-          <el-input v-model="form.abstractText" type="textarea" :rows="5" />
-        </el-form-item>
-        <label class="upload-drop">
-          <el-icon><UploadFilled /></el-icon>
-          <span>{{
-            form.fileId ? `已绑定文件 #${form.fileId}` : '选择 PDF 或文本文件'
-          }}</span>
-          <input
-            type="file"
-            accept=".pdf,.txt,application/pdf,text/plain"
-            @change="handleNativeFile"
-          />
-        </label>
-        <el-button
-          class="wide-action drawer-action"
-          type="primary"
-          :loading="saving || uploading"
-          @click="saveLiterature"
-        >
-          保存文献
-        </el-button>
-      </el-form>
-    </el-drawer>
 
     <el-drawer
       v-model="noteDrawerVisible"

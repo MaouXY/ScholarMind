@@ -1,37 +1,21 @@
 package com.maou.apptemplateapi.module.literature.controller;
 
 import com.maou.apptemplateapi.common.result.ApiResponse;
-import com.maou.apptemplateapi.common.result.PageResult;
-import com.maou.apptemplateapi.module.literature.dto.LiteratureResponse;
-import com.maou.apptemplateapi.module.literature.dto.LiteratureReviewRequest;
 import com.maou.apptemplateapi.module.literature.service.LiteratureService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * 管理端文献接口。
+ * <p>客户 2026-11-15 口径调整后，文献上传统一走 {@code POST /api/v1/literatures}
+ * （服务端校验管理员身份，上传即发布），此处只保留删除能力。</p>
+ */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/admin/literatures")
 public class AdminLiteratureController {
 
     private final LiteratureService literatureService;
-
-    @GetMapping("/pending")
-    public ApiResponse<PageResult<LiteratureResponse>> pending(
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "10") long size) {
-        return ApiResponse.success(literatureService.pending(page, size));
-    }
-
-    @PostMapping("/{id}/approve")
-    public ApiResponse<LiteratureResponse> approve(@PathVariable Long id) {
-        return ApiResponse.success(literatureService.approve(id));
-    }
-
-    @PostMapping("/{id}/reject")
-    public ApiResponse<LiteratureResponse> reject(@PathVariable Long id, @Valid @RequestBody LiteratureReviewRequest request) {
-        return ApiResponse.success(literatureService.reject(id, request));
-    }
 
     /** 管理端删除文献：级联清理分块、收藏、阅读历史、笔记、引用、问答、附件与向量。 */
     @DeleteMapping("/{id}")

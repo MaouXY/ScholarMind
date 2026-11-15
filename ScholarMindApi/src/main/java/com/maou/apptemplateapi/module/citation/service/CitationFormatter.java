@@ -50,7 +50,8 @@ public class CitationFormatter {
         String authors = String.join(", ", parseAuthors(literature.getAuthor()));
         String title = title(literature);
         String source = StringUtils.hasText(literature.getSource()) ? literature.getSource().trim() : null;
-        String year = literature.getPublishYear() == null ? UNKNOWN_YEAR_GB : String.valueOf(literature.getPublishYear());
+        Integer publishedYear = publicationYear(literature);
+        String year = publishedYear == null ? UNKNOWN_YEAR_GB : String.valueOf(publishedYear);
         String typeMark = source == null ? "[EB/OL]" : "[J]";
 
         StringBuilder builder = new StringBuilder();
@@ -68,7 +69,8 @@ public class CitationFormatter {
     private String formatApa(Literature literature) {
         boolean surnameFirst = surnameFirst(literature);
         String authors = apaAuthors(parseAuthors(literature.getAuthor()), surnameFirst);
-        String year = literature.getPublishYear() == null ? "(n.d.)." : "(" + literature.getPublishYear() + ").";
+        Integer publishedYear = publicationYear(literature);
+        String year = publishedYear == null ? "(n.d.)." : "(" + publishedYear + ").";
         String title = title(literature);
         String source = StringUtils.hasText(literature.getSource()) ? literature.getSource().trim() : null;
 
@@ -88,7 +90,8 @@ public class CitationFormatter {
         boolean surnameFirst = surnameFirst(literature);
         String title = title(literature);
         String source = StringUtils.hasText(literature.getSource()) ? literature.getSource().trim() : null;
-        String year = literature.getPublishYear() == null ? "n.d." : literature.getPublishYear() + ".";
+        Integer publishedYear = publicationYear(literature);
+        String year = publishedYear == null ? "n.d." : publishedYear + ".";
 
         StringBuilder builder = new StringBuilder();
         if (!authors.isEmpty()) {
@@ -100,6 +103,17 @@ public class CitationFormatter {
         }
         builder.append(' ').append(year);
         return builder.toString();
+    }
+
+    /**
+     * 出版年：优先取精确发表日期，缺失时退回在线公开日期。
+     * 客户 2026-11-15 口径调整后 {@code publish_year} 已由 {@code publish_date} 取代。
+     */
+    private Integer publicationYear(Literature literature) {
+        if (literature.getPublishDate() != null) {
+            return literature.getPublishDate().getYear();
+        }
+        return literature.getOnlinePublishDate() == null ? null : literature.getOnlinePublishDate().getYear();
     }
 
     /**

@@ -17,12 +17,12 @@ ScholarMind/
 │  ├─ src/main/java/com/maou/apptemplateapi/
 │  │  ├─ common/                   公共配置（安全、异常、Jackson、存储、AI、RAG）
 │  │  └─ module/                   业务模块：user / literature / citation / file / rag / ai / admin
-│  ├─ src/main/resources/sql/      数据库脚本（00~08，按序执行）
+│  ├─ src/main/resources/sql/      数据库脚本（00~12，按序执行）
 │  └─ src/test/java/               单元测试（AI 调用重试、引用格式化、上下文装配）
 ├─ ScholarMindWeb/                 前端（Vue 3 + Vite，开发端口 5173）
 │  └─ src/{api,types,views,layouts,styles,router,stores,utils}
 ├─ doc/                            项目文档（01~10 见第九节；html/ 为可交互图形）
-└─ scripts/seed-demo-files.ps1     演示数据：为已发布文献上传并绑定原文文件（需 RustFS 在线）
+└─ scripts/seed-demo-files.ps1     演示数据：为文献上传并绑定原文文件（需 RustFS 在线）
 ```
 
 ## 二、环境要求
@@ -57,6 +57,7 @@ ScholarMind/
 09_retire_teacher_accounts.sql     教师端下线与演示用户迁移
 10_seed_retrieval_demo.sql         三模式检索演示数据
 11_seed_open_access_papers.sql     开放论文题录与摘要译文（无伪造全文）
+12_admin_literature_upload.sql     管理员上传改造：文献类别 / 出版日期 / 在线公开日期 + 学科中文化
 ```
 
 命令行执行示例（**注意指定 utf8mb4**，否则中文演示数据会报 `Incorrect string value`）：
@@ -71,7 +72,7 @@ Get-ChildItem .\ScholarMindApi\src\main\resources\sql\*.sql | Sort-Object Name |
 
 `05` 与 `07`、`08` 均为幂等脚本（`CREATE TABLE IF NOT EXISTS` / `ON DUPLICATE KEY UPDATE`），可重复执行。
 
-已有数据库补充论文数据时，仅执行 `11_seed_open_access_papers.sql`；全新初始化按 `00~11` 文件顺序执行。随后在管理端重建文献向量。该脚本只导入三篇 arXiv 论文的题录、摘要和明确标注的中文摘要译文，不写入假原文附件；正式全文需另行核验许可并上传。
+已有数据库升级到「管理员上传」模型时，仅执行 `12_admin_literature_upload.sql`（幂等）；全新初始化按 `00~12` 文件顺序执行。随后在管理端重建文献向量。该脚本只导入三篇 arXiv 论文的题录、摘要和明确标注的中文摘要译文，不写入假原文附件；正式全文需另行核验许可并上传。
 
 ## 四、启动
 
@@ -99,14 +100,14 @@ npm run dev
 
 ### 上传演示文件（可选，需 RustFS 在线）
 
-演示数据中的文献默认只有元数据与正文分块；执行以下脚本可为所有已发布文献上传并绑定原文文件，使「下载原文」可用：
+演示数据中的文献默认只有元数据与正文分块；执行以下脚本可为所有文献上传并绑定原文文件，使「下载原文」可用：
 
 ```powershell
 cd ScholarMind
 pwsh -NoProfile -File .\scripts\seed-demo-files.ps1
 ```
 
-脚本以 `admin` 登录，为未绑定文件的已发布文献生成演示文本、调用上传接口并通过文献更新接口绑定（可重复执行，已绑定者自动跳过）。
+脚本以 `admin` 登录，为未绑定文件的文献生成演示文本、调用上传接口并通过文献更新接口绑定（可重复执行，已绑定者自动跳过）。
 
 检索演示文献（`sql/10_seed_retrieval_demo.sql` 的 12 篇）的原文由脚本按库内分块正文生成，保证「下载原文」与「在线阅读」完全一致：
 
@@ -119,10 +120,10 @@ pwsh -NoProfile -File .\scripts\seed-retrieval-demo-files.ps1
 | 脚本 | 用途 | 前置条件 |
 | --- | --- | --- |
 | `preflight-check.ps1` | **验收前一键体检**：依赖端口、后端健康、前端可访问、登录与代理、演示数据规模、下载链路抽检、混合检索向量路、AI 任务健康度；输出 `[OK]/[WARN]/[FAIL]` 与结论，退出码 0 表示关键项全通过 | 后端与前端已启动 |
-| `seed-demo-files.ps1` | 为已发布文献上传并绑定原文文件（幂等，可重复执行） | RustFS 在线 |
+| `seed-demo-files.ps1` | 为文献上传并绑定原文文件（幂等，可重复执行） | RustFS 在线 |
 | `seed-retrieval-demo-files.ps1` | 为 12 篇检索演示文献绑定原文（正文取自库内分块，保证在线阅读与下载一致） | 已执行 `sql/10`、RustFS 在线 |
 | `make-sample-pdf.ps1` | 生成用于全文解析验证的最小示例 PDF（手写 PDF 结构，无需第三方依赖） | 无 |
-| `verify-pdf-parsing.ps1` | 端到端验证「PDF → 正文分块」：上传 PDF → 建文献并绑定 → 审核发布 → 校验自动重建出的分块正文含 PDF 关键词 → 调用管理端删除清理；`-KeepData` 可保留数据，`-LogPath` 可打印后端解析日志 | RustFS 在线、后端已启动 |
+| `verify-pdf-parsing.ps1` | 端到端验证「PDF → 正文分块」：管理员登录上传 PDF → 文献直接发布并自动建索引与摘要 → 校验分块正文含 PDF 关键词与摘要已生成 → 调用管理端删除清理；`-KeepData` 可保留数据，`-LogPath` 可打印后端解析日志 | RustFS 在线、后端已启动 |
 | `export-retrieval-compare.ps1` | **论文取数**：批量跑 15 条探针（术语型 / 改写型 / 口语型），调 `/search/retrieval-compare` 把稀疏、向量、RRF 三列的名次与分数导出为 CSV（默认落到 `doc/数据/`），并统计两路 Top1 分歧条数 | 后端已启动、Milvus 在线（离线则退化为纯 BM25） |
 
 > 验收步骤与预期结果详见 `doc/...-07-系统验收流程.md`；演示配图清单见 `doc/...-06-系统截图清单.md`。
@@ -166,12 +167,12 @@ npm run build           # 类型门禁 + vite build
 
 | 路由 | 页面 | 主要能力 |
 | --- | --- | --- |
-| `/student/library` | 文献检索与阅读 | 自然语言 / 语义 / 混合三种检索模式、文献上传与编辑、收藏、右侧题录信息面板 |
+| `/student/library` | 文献检索与阅读 | 自然语言 / 语义 / 混合三种检索模式、按学科与文献类别筛选、收藏、右侧题录信息面板（学生端只读） |
 | `/student/literature/:id` | 文献详情 | 题录、摘要与 AI 摘要、索引状态（只读）、收藏、**引用格式（GB/T 7714 / APA / MLA）与下载**（未绑定原文时按钮置灰） |
-| `/student/literature/:id/read` | 在线阅读 | 真实分块正文、目录导航、阅读进度与时长（自动保存）、笔记管理、下载与笔记导出；上传/审核/换原文时索引自动重建，无需手动操作 |
+| `/student/literature/:id/read` | 在线阅读 | 真实分块正文、目录导航、阅读进度与时长（自动保存）、笔记管理、下载与笔记导出；上传/换原文时索引自动重建，无需手动操作 |
 | `/student/literature/:id/qa` | 智能问答 | 基于原文片段的问答与引用、历史问答 |
 | `/student/shelf` | 我的书房 | 收藏 / 阅读历史 / 笔记三类资产的汇总与导出 |
-| `/admin/dashboard` | 管理中心 | 统计 KPI、公开文献审核、**文献库管理与删除**、RAG 知识库维护 |
+| `/admin/dashboard` | 管理中心 | 统计 KPI、**上传文献（含可选原文）**、文献库管理与删除、RAG 知识库维护 |
 | `/admin/users`、`/admin/categories` | 用户/分类管理 | 账号启停、分类增删改 |
 | `/admin/ai-logs` | AI 调用日志 | 任务分页与筛选、请求/响应预览、健康度概要 |
 | `/admin/operations` | 运营分析 | 热门关键词、平台指标、AI 运营分析报告（含兜底标识） |
@@ -185,18 +186,18 @@ npm run build           # 类型门禁 + vite build
 - 阅读：`GET|PUT /reading-history`、`POST|DELETE /favorites`、`GET|POST|PUT|DELETE /notes`、`GET /notes/export`
 - 引用：`GET|POST /citations`、`DELETE /citations/{id}`、`GET /citations/export`
 - 检索与 AI：`POST /search/semantic`、`POST /search/hybrid`（混合检索）、`POST /search/retrieval-compare`（稀疏/稠密/RRF 三路对比，用于算法验证与论文数据）、`POST /search/natural-language`、`POST /ai/literature/{id}/summary|question|index`、`POST /ai/literature/compare`
-- 管理：`GET /admin/statistics/dashboard|keywords`、`POST /admin/statistics/report`、`GET /admin/ai-tasks`、`GET /admin/ai-tasks/summary`、`GET|PUT /admin/users`、`POST /admin/literatures/{id}/approve|reject`、`DELETE /admin/literatures/{id}`（级联清理分块/收藏/历史/笔记/引用/问答、附件对象与向量）、`POST /admin/rag/literature-vectors/rebuild`（把已发布文献分块写入 Milvus 向量库）
+- 管理：`GET /admin/statistics/dashboard|keywords`、`POST /admin/statistics/report`、`GET /admin/ai-tasks`、`GET /admin/ai-tasks/summary`、`GET|PUT /admin/users`、`DELETE /admin/literatures/{id}`（级联清理分块/收藏/历史/笔记/引用/问答、附件对象与向量）、`POST /admin/rag/literature-vectors/rebuild`（把已发布文献分块写入 Milvus 向量库）
 
 ## 七、演示路径建议
 
 1. 用户端检索「怎样把几个检索器给出的候选清单合成为一个更可靠的排序」→ 切换到「语义检索」与「混合检索」，对比同一问题下三种模式返回的文献与名次差异；
 2. 检索「BM25 k1 参数对倒排索引检索效果的影响」→ 术语型问题下稀疏召回占优，可与口语化问题对照演示；
-3. 进入文献详情，查看 AI 摘要（新文献的摘要由审核通过时自动生成）、切换三种引用格式并复制 / 收藏引用 / 导出参考文献；
-4. 上传一个 PDF 文献并绑定原文，在管理端审核通过 → 索引**自动重建**、**AI 摘要自动生成**（均无需点按钮，审核按钮会显示「正在生成摘要…」十余秒），在线阅读页即可看到**从 PDF 抽取的真实正文分块**；
+3. 进入文献详情，查看 AI 摘要（新文献的摘要在上传时自动生成）、切换三种引用格式并复制 / 收藏引用 / 导出参考文献；
+4. 以 `admin` 进入管理中心「上传文献」，填写 9 个题录字段并附上 PDF 原文 → 提交后索引**自动重建**、**AI 摘要自动生成**（无需点按钮，按钮显示「正在建索引并生成摘要…」十余秒），在线阅读页即可看到**从 PDF 抽取的真实正文分块**；
 5. 在线阅读时自动保存进度、记录笔记，导出本篇笔记；
 6. 智能问答提问并核对引用片段；
 7. 打开「我的书房」查看收藏、阅读历史与笔记汇总；
-8. 管理员处理待审核文献、在「文献库管理」中删除一篇文献（观察分块、收藏、附件与向量一并清理）；
+8. 管理员在「文献库管理」中删除一篇文献（观察分块、收藏、附件与向量一并清理）；
 9. 查看 AI 调用日志与热门关键词、一键生成运营分析报告，打开数据总览大屏。
 
 ## 八、已知限制
@@ -205,13 +206,13 @@ npm run build           # 类型门禁 + vite build
    并把原因写入 `literature.parse_error`；旧版 `.doc` 与扫描件（图片型 PDF）目前按「未解析到正文」处理，走兜底。
 2. **向量检索与混合检索**：已实现混合检索（BM25 稀疏 + Milvus 向量稠密 + RRF 融合，见接口一览与文档 04 第八节）。
    分块需先写入向量库：管理端调用 `POST /admin/rag/literature-vectors/rebuild`（或对单篇文献重建索引，
-   上传 / 换原文 / 审核通过时也会自动重建）；
+   上传 / 换原文时也会自动重建）；
    未写入向量时检索自动退化为纯稀疏 BM25。**注意** `app.agent.rag.milvus.dimension` 必须与 embedding 模型实际维度一致
    （`doubao-embedding-text-240715` 为 2560），不一致时写入会报 `Incorrect dimension for field 'vector'`；
    服务已在写入时做维度自愈（不匹配则删表重建）。
 3. **AI 依赖**：摘要、问答、运营报告在模型不可用时自动落到本地兜底（响应中的 `fallbackUsed` / `summary_status` 可区分），需要真实 AI 效果时请确保 Ark Key 与模型名可用。
-   摘要已改为**审核通过时自动生成**（与索引重建同一条事件链），因此审核接口耗时为秒级到十几秒；
-   索引或摘要失败只降级（`parse_status` / `summary_status` 置 `FAILED`），不影响审核结果本身。
+   摘要已改为**上传时自动生成**（与索引重建同一条事件链），因此上传接口耗时为秒级到十几秒；
+   索引或摘要失败只降级（`parse_status` / `summary_status` 置 `FAILED`），不影响文献本身入库。
 4. **文件模块**：已清理模板期遗留的「工单绑定」接口（无调用方的死代码），现仅保留通用上传 `POST /files/upload`；
    业务绑定统一通过相应业务表的外键维护（文献附件为 `literature.file_id`），下载走预签名地址。
 5. **前端开发端口**：默认 5173，若被占用请修改 `ScholarMindWeb/vite.config.ts`。
@@ -238,8 +239,8 @@ npm run build           # 类型门禁 + vite build
 | 文件 | 内容 |
 | --- | --- |
 | `doc/html/01-新架构.html` | 改版后架构：用户端/管理端 SPA、Spring Boot API、检索编排、AI 能力、MySQL/Milvus/RustFS/Ark |
-| `doc/html/02-新业务流程.html` | 用户端 6 环节与管理端 6 环节，含上传审核闭环与三种检索模式说明 |
-| `doc/html/03-改造计划.html` | 改造交付全景：第 1~3 批全部交付，只剩「管理端指标是否进论文」待客户确认 |
+| `doc/html/02-新业务流程.html` | 用户端 6 环节与管理端 6 环节，含管理员统一上传与三种检索模式说明 |
+| `doc/html/03-改造计划.html` | 改造交付全景：第 1~4 批全部交付，只剩「管理端指标是否进论文」待客户确认 |
 | `doc/html/04-页面功能地图.html` | 用户端 5 页与管理端 6 页的功能与跳转关系，标注代码来源 |
 
 > 图内「来源」徽标可点击跳转到 GitHub 对应代码行；图形由 Archify 生成，全部通过 validate / deliver / check / browser-check 四道校验。

@@ -32,7 +32,7 @@ import {
   updateReadingNote,
 } from '@/api/literature'
 import { downloadReadingNotes } from '@/utils/download'
-import { displayCategoryName, displayLanguage } from '@/utils/format'
+import { displayCategoryName, displayLanguage, displayLiteratureType } from '@/utils/format'
 import type {
   Id,
   Literature,
@@ -206,16 +206,6 @@ const emptyChunkHint = computed(() => {
   }
   return '该文献暂无可读正文，请联系管理员'
 })
-
-function statusLabel(status?: Literature['status']) {
-  const labels: Record<string, string> = {
-    DRAFT: '草稿',
-    PENDING_REVIEW: '审核中',
-    PUBLISHED: '已发布',
-    REJECTED: '已退回',
-  }
-  return status ? (labels[status] ?? status) : '未知状态'
-}
 
 function resetNoteForm() {
   Object.assign(noteForm, {
@@ -703,9 +693,9 @@ onBeforeUnmount(() => {
             <div class="reader-meta">
               <span>{{ literature.author || '未知作者' }}</span>
               <span>{{ literature.source || '未填写来源' }}</span>
-              <span>{{ literature.publishYear || '年份未知' }}</span>
+              <span>{{ literature.publishDate || '出版日期未知' }}</span>
               <span>{{ displayLanguage(literature.language) }}</span>
-              <span>{{ statusLabel(literature.status) }}</span>
+              <span>{{ displayLiteratureType(literature.literatureType) }}</span>
             </div>
 
             <section class="parse-status-grid">

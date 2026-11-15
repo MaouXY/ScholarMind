@@ -241,7 +241,7 @@ onMounted(async () => {
         </div>
         <div class="reader-meta">
           <span>{{ literature.source || '未填写来源' }}</span>
-          <span>{{ literature.publishYear || '年份未知' }}</span>
+          <span>{{ literature.publishDate || '出版日期未知' }}</span>
           <span>{{ literature.language || '语言未填写' }}</span>
           <span>文献编号 {{ literature.id }}</span>
         </div>

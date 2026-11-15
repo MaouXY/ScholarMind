@@ -36,9 +36,8 @@ public class LiteratureController {
             @RequestParam(defaultValue = "10") long size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String visibility) {
-        return ApiResponse.success(literatureService.list(page, size, keyword, categoryId, status, visibility));
+            @RequestParam(required = false) String literatureType) {
+        return ApiResponse.success(literatureService.list(page, size, keyword, categoryId, literatureType));
     }
 
     @GetMapping("/{id}")
@@ -78,13 +77,8 @@ public class LiteratureController {
 
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable Long id) {
-        literatureService.delete(id);
+        literatureService.adminDelete(id);
         return ApiResponse.success();
-    }
-
-    @PostMapping("/{id}/submit")
-    public ApiResponse<LiteratureResponse> submit(@PathVariable Long id) {
-        return ApiResponse.success(literatureService.submit(id));
     }
 
     @PostMapping("/{id}/read")

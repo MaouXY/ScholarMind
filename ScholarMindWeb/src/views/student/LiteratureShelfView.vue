@@ -21,7 +21,7 @@ import {
   unfavoriteLiterature,
 } from '@/api/literature'
 import { downloadReadingNotes } from '@/utils/download'
-import { displayCategoryName, displayStatusName } from '@/utils/format'
+import { displayCategoryName } from '@/utils/format'
 import type {
   Favorite,
   Id,
@@ -101,19 +101,6 @@ function excerpt(content?: string | null, length = 96) {
   const text = (content ?? '').replace(/\s+/g, ' ').trim()
   if (text.length <= length) return text || '（无内容）'
   return `${text.slice(0, length)}…`
-}
-
-function statusTagType(status?: string | null) {
-  if (status === 'PUBLISHED') return 'success'
-  if (status === 'REJECTED') return 'danger'
-  if (status === 'PENDING_REVIEW') return 'warning'
-  return 'info'
-}
-
-function visibilityText(visibility?: string | null) {
-  if (visibility === 'PUBLIC') return '公开'
-  if (visibility === 'PRIVATE') return '私有'
-  return '可见性未知'
 }
 
 /* ----------------------------- 收藏：数据 ----------------------------- */
@@ -359,18 +346,10 @@ onMounted(async () => {
                   <div class="shelf-card__main">
                     <h4>{{ item.literatureTitle || '未命名文献' }}</h4>
                     <div class="shelf-card__tags">
-                      <el-tag
-                        size="small"
-                        effect="plain"
-                        :type="statusTagType(item.status)"
-                      >
-                        {{ displayStatusName(item.status) }}
-                      </el-tag>
                       <span>{{ item.author || '未知作者' }}</span>
                       <span>
                         {{ displayCategoryName(item.categoryName ?? null) }}
                       </span>
-                      <span>{{ visibilityText(item.visibility) }}</span>
                       <span>阅读 {{ item.readCount ?? 0 }} 次</span>
                       <span>收藏于 {{ formatDateTime(item.createdAt) }}</span>
                     </div>
@@ -462,13 +441,6 @@ onMounted(async () => {
                       <span>
                         {{ displayCategoryName(item.categoryName ?? null) }}
                       </span>
-                      <el-tag
-                        size="small"
-                        effect="plain"
-                        :type="statusTagType(item.status)"
-                      >
-                        {{ displayStatusName(item.status) }}
-                      </el-tag>
                       <span>更新于 {{ formatDateTime(item.updatedAt) }}</span>
                     </div>
                     <div class="shelf-card__progress">

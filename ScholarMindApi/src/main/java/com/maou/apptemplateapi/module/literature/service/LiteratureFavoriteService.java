@@ -163,8 +163,6 @@ public class LiteratureFavoriteService {
                 readable && literature.getTitle() != null ? literature.getTitle() : UNKNOWN_TITLE,
                 readable ? literature.getAuthor() : null,
                 categoryName,
-                readable ? literature.getStatus() : null,
-                readable ? literature.getVisibility() : null,
                 readable && literature.getReadCount() != null ? literature.getReadCount() : 0,
                 favorite.getCreatedAt());
     }

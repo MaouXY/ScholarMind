@@ -19,9 +19,9 @@ const query = reactive({
 const overview = computed(() => dashboard.value.overview)
 
 const kpis = computed(() => [
-  { label: '公开文献', value: overview.value.publishedLiteratureTotal, hint: `总量 ${overview.value.literatureTotal}` },
+  { label: '文献总量', value: overview.value.literatureTotal, hint: '均由管理员上传' },
   { label: '阅读事件', value: overview.value.readingHistoryTotal, hint: `${overview.value.readingNoteTotal} 条笔记` },
-  { label: '待审核', value: overview.value.pendingReviewTotal, hint: '公开发布队列' },
+  { label: '原文文件', value: overview.value.fileTotal, hint: 'PDF / 文本解析建索引' },
 ])
 
 const maxReading = computed(() =>
@@ -157,9 +157,9 @@ watch(() => query.days, fetchDashboard)
           </div>
         </div>
         <ul class="signal-list">
-          <li><strong>公开文献</strong><span>{{ overview.publishedLiteratureTotal }} 篇已发布文献</span></li>
-          <li><strong>审核流转</strong><span>{{ overview.pendingReviewTotal }} 篇公开文献等待处理</span></li>
-        <li><strong>阅读沉淀</strong><span>{{ overview.readingNoteTotal }} 条笔记，{{ overview.qaTotal }} 条问答</span></li>
+          <li><strong>文献入库</strong><span>{{ overview.literatureTotal }} 篇文献均由管理员上传，原文 {{ overview.fileTotal }} 份</span></li>
+          <li><strong>学科覆盖</strong><span>{{ dashboard.literatureCategoryStats.length }} 个学科，{{ dashboard.literatureTypeStats.length }} 种文献类别</span></li>
+          <li><strong>阅读沉淀</strong><span>{{ overview.readingNoteTotal }} 条笔记，{{ overview.qaTotal }} 条问答</span></li>
         </ul>
       </section>
     </div>

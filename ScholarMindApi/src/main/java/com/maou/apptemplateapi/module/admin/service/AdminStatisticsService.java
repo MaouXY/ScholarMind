@@ -60,7 +60,7 @@ public class AdminStatisticsService {
         AdminDashboardResponse response = new AdminDashboardResponse(
                 overview(),
                 trends(normalizedDays),
-                literatureStatusStats(),
+                literatureTypeStats(),
                 literatureCategoryStats(normalizedLimit),
                 userRoleStats(),
                 hotLiteratures(normalizedLimit),
@@ -169,10 +169,7 @@ public class AdminStatisticsService {
                 toInt(countUsers(null, null)),
                 toInt(countUsers("STUDENT", null)),
                 toInt(countUsers(null, 1)),
-                toInt(countLiteratures(null, null)),
-                toInt(countLiteratures("PUBLISHED", null)),
-                toInt(countLiteratures("PENDING_REVIEW", null)),
-                toInt(countLiteratures(null, "PRIVATE")),
+                toInt(countLiteratures()),
                 toInt(countFiles()),
                 // 文件总字节可能超过 int 范围，用 Double 承载（可精确表示到 2^53）
                 (double) sumFileSize(),
@@ -218,10 +215,11 @@ public class AdminStatisticsService {
         return result;
     }
 
-    private List<AdminDimensionStatResponse> literatureStatusStats() {
+    /** 文献类别分布：期刊论文 / 会议论文 / 学位论文 / 图书 / 预印本 / 其他。 */
+    private List<AdminDimensionStatResponse> literatureTypeStats() {
         return literatureMapper.selectList(new LambdaQueryWrapper<Literature>().eq(Literature::getDeleted, 0))
                 .stream()
-                .collect(Collectors.groupingBy(item -> value(item.getStatus(), "UNKNOWN"), Collectors.counting()))
+                .collect(Collectors.groupingBy(item -> value(item.getLiteratureType(), "其他"), Collectors.counting()))
                 .entrySet()
                 .stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
@@ -275,8 +273,7 @@ public class AdminStatisticsService {
                         item.getTitle(),
                         item.getAuthor(),
                         categoryName(item.getCategoryId(), categoryMap),
-                        item.getStatus(),
-                        item.getVisibility(),
+                        item.getLiteratureType(),
                         item.getReadCount() == null ? 0 : item.getReadCount(),
                         item.getDownloadCount() == null ? 0 : item.getDownloadCount(),
                         toInt(favoriteCounts.getOrDefault(item.getId(), 0L)),
@@ -344,11 +341,8 @@ public class AdminStatisticsService {
                 .eq(status != null, UserAccount::getStatus, status));
     }
 
-    private long countLiteratures(String status, String visibility) {
-        return literatureMapper.selectCount(new LambdaQueryWrapper<Literature>()
-                .eq(Literature::getDeleted, 0)
-                .eq(StringUtils.hasText(status), Literature::getStatus, status)
-                .eq(StringUtils.hasText(visibility), Literature::getVisibility, visibility));
+    private long countLiteratures() {
+        return literatureMapper.selectCount(new LambdaQueryWrapper<Literature>().eq(Literature::getDeleted, 0));
     }
 
     private long countFiles() {

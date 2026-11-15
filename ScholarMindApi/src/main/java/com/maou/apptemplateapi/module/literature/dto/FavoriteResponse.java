@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 /**
  * 我的书房——收藏条目（带文献基本信息，供列表直接展示）。
+ * <p>文献上传即发布后不再有可见性与审核状态，条目上的 status / visibility 已移除。</p>
  */
 public record FavoriteResponse(
         Long id,
@@ -11,8 +12,6 @@ public record FavoriteResponse(
         String literatureTitle,
         String author,
         String categoryName,
-        String status,
-        String visibility,
         Integer readCount,
         LocalDateTime createdAt
 ) {

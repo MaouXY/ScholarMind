@@ -68,8 +68,7 @@ $counts = @{}
 if (Test-Path $MysqlPath) {
     $sql = @"
 select 'literatures', count(*) from literature where deleted=0
-union all select 'published', count(*) from literature where status='PUBLISHED' and deleted=0
-union all select 'pending_review', count(*) from literature where status='PENDING_REVIEW' and deleted=0
+union all select 'with_file', count(*) from literature where file_id is not null and deleted=0
 union all select 'chunks', count(*) from literature_chunk where deleted=0
 union all select 'users', count(*) from user_account where deleted=0
 union all select 'favorites', count(*) from literature_favorite where deleted=0
@@ -87,8 +86,7 @@ union all select 'search_logs', count(*) from literature_search_log where delete
             if ($parts.Count -ge 2) { $counts[$parts[0]] = [int]$parts[1] }
         }
     $expectations = @(
-        @{ key = 'published';      label = '已发布文献';   min = 5 },
-        @{ key = 'pending_review'; label = '待审核文献';   min = 1 },
+        @{ key = 'with_file';       label = '绑定原文文献'; min = 1 },
         @{ key = 'chunks';         label = '正文分块';     min = 10 },
         @{ key = 'users';          label = '用户账号';     min = 5 },
         @{ key = 'favorites';      label = '收藏记录';     min = 1 },
@@ -114,8 +112,8 @@ if ($backendUp) {
 
     # 4.1 下载链路
     try {
-        $published = Invoke-RestMethod -Uri "$BaseUrl/literatures?status=PUBLISHED&page=1&size=12" -Headers $headers
-        $bound = @($published.data.items | Where-Object { $_.fileId })
+        $catalog = Invoke-RestMethod -Uri "$BaseUrl/literatures?page=1&size=12" -Headers $headers
+        $bound = @($catalog.data.items | Where-Object { $_.fileId })
         if ($bound.Count -eq 0) {
             Report warn '下载链路' '没有已绑定原文文件的文献（执行 scripts/seed-demo-files.ps1）'
         } else {
@@ -153,7 +151,7 @@ if ($backendUp) {
             Report ok 'AI 任务健康度' ("总数 {0}，成功 {1}，失败 {2}，成功率 {3}%，平均 {4}ms" -f $summary.data.total, $summary.data.success, $summary.data.failed, $summary.data.successRate, $summary.data.avgDurationMs)
         } else { Report warn 'AI 任务健康度' '暂无 AI 调用记录（可先生成一次文献摘要验证 AI Key）' }
         $dash = Invoke-RestMethod -Uri "$BaseUrl/admin/statistics/dashboard?days=14&limit=3" -Headers @{ Authorization = "Bearer $adminToken" }
-        Report ok '统计看板' ("用户 {0}、文献 {1}、待审核 {2}（数值字段为数字类型）" -f $dash.data.overview.userTotal, $dash.data.overview.literatureTotal, $dash.data.overview.pendingReviewTotal)
+        Report ok '统计看板' ("用户 {0}、文献 {1}、原文文件 {2}（数值字段为数字类型）" -f $dash.data.overview.userTotal, $dash.data.overview.literatureTotal, $dash.data.overview.fileTotal)
     } catch { Report warn 'AI 任务健康度' $_.Exception.Message }
 }
 
