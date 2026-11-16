@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  ArrowLeft,
   Delete,
   Document,
   Download,
@@ -58,6 +59,8 @@ const favoriteQuery = ref<{ page: number; size: number; folderId?: Id }>({
 /** 0 表示「未分类」，undefined 表示「全部收藏」 */
 const folders = ref<FavoriteFolder[]>([])
 const foldersLoading = ref(false)
+/** overview = 先看收藏夹条目；detail = 进入某个收藏夹看文献 */
+const folderLevel = ref<'overview' | 'detail'>('overview')
 const activeFolderId = ref<Id | undefined>(undefined)
 const folderDialogVisible = ref(false)
 const folderDialogMode = ref<'create' | 'edit'>('create')
@@ -65,9 +68,21 @@ const folderSaving = ref(false)
 const folderRemovingId = ref<Id | null>(null)
 const editingFolder = ref<FavoriteFolder | null>(null)
 const folderForm = ref<FavoriteFolderPayload>({ name: '', description: '' })
+/** 未分类收藏数：后端无单独计数接口，用列表 total 取 */
+const unclassifiedTotal = ref(0)
 
 /** 后端约定：folderId 传 0 表示「未分类」；ID 统一按字符串传输 */
 const UNCLASSIFIED: Id = '0'
+
+/** 当前所在收藏夹的名称，用于第二层的标题 */
+const currentFolderName = computed(() => {
+  if (activeFolderId.value === undefined) return '全部收藏'
+  if (String(activeFolderId.value) === UNCLASSIFIED) return '未分类'
+  return (
+    folders.value.find((item) => String(item.id) === String(activeFolderId.value))
+      ?.name ?? '收藏夹'
+  )
+})
 
 /* ----------------------------- 阅读历史 ----------------------------- */
 const historyItems = ref<ReadingHistoryItem[]>([])
@@ -176,23 +191,43 @@ async function loadFavorites() {
 async function loadFolders() {
   foldersLoading.value = true
   try {
-    folders.value = await listFavoriteFolders()
+    const [folderList, unclassified] = await Promise.all([
+      listFavoriteFolders(),
+      listFavorites({ page: 1, size: 1, folderId: UNCLASSIFIED }),
+    ])
+    folders.value = folderList
+    unclassifiedTotal.value = unclassified.total
   } catch (error) {
     console.error(
       'favorite folder list failed, scenario=favorite-folder-list',
       error,
     )
     folders.value = []
+    unclassifiedTotal.value = 0
   } finally {
     foldersLoading.value = false
   }
 }
 
-/** 切换当前收藏夹；0 为未分类，undefined 为全部 */
-async function selectFolder(folderId?: Id) {
+/** 进入某个收藏夹（第二层）：folderId 为 0 表示未分类，undefined 表示全部 */
+async function openFolder(folderId?: Id) {
   activeFolderId.value = folderId
+  folderLevel.value = 'detail'
   favoriteQuery.value.page = 1
   await loadFavorites()
+}
+
+/** 返回到收藏夹列表（第一层） */
+async function backToFolders() {
+  folderLevel.value = 'overview'
+  activeFolderId.value = undefined
+  favoriteQuery.value.page = 1
+  await Promise.all([loadFolders(), refreshAllFavoriteTotal()])
+}
+
+/** 第一层刷新：收藏夹条目 + 总数 */
+async function refreshFolders() {
+  await Promise.all([loadFolders(), refreshAllFavoriteTotal()])
 }
 
 function folderCountText(folder: FavoriteFolder) {
@@ -265,10 +300,14 @@ async function removeFolder(folder: FavoriteFolder) {
   try {
     await deleteFavoriteFolder(folder.id)
     ElMessage.success('收藏夹已删除')
-    if (activeFolderId.value === folder.id) {
+    if (String(activeFolderId.value) === String(folder.id)) {
+      folderLevel.value = 'overview'
       activeFolderId.value = undefined
     }
-    await Promise.all([loadFolders(), loadFavorites()])
+    await Promise.all([loadFolders(), refreshAllFavoriteTotal()])
+    if (folderLevel.value === 'detail') {
+      await loadFavorites()
+    }
   } catch (error) {
     console.error(
       'favorite folder delete failed, scenario=favorite-folder-delete, folderId=%s',
@@ -467,11 +506,20 @@ function handleTabChange(name: string | number) {
     loadNotes()
     return
   }
-  loadFavorites()
+  // 回到收藏分页时总是从收藏夹列表开始
+  folderLevel.value = 'overview'
+  activeFolderId.value = undefined
+  favoriteQuery.value.page = 1
+  refreshFolders()
 }
 
 onMounted(async () => {
-  await Promise.all([loadFolders(), refreshAllFavoriteTotal(), loadFavorites(), loadHistory(), loadNotes()])
+  await Promise.all([
+    loadFolders(),
+    refreshAllFavoriteTotal(),
+    loadHistory(),
+    loadNotes(),
+  ])
 })
 </script>
 
@@ -496,54 +544,79 @@ onMounted(async () => {
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="收藏" name="favorites">
           <div class="shelf-pane">
-            <div class="folder-rail" v-loading="foldersLoading">
-              <div class="folder-rail__head">
-                <span class="folder-rail__caption">
-                  <el-icon><FolderOpened /></el-icon>
-                  收藏夹
+            <!-- 第一层：收藏夹条目 -->
+            <div v-if="folderLevel === 'overview'" class="folder-overview">
+              <div class="shelf-toolbar">
+                <span class="shelf-toolbar__info">
+                  共 {{ folders.length }} 个收藏夹 · {{ allFavoritesTotal }} 篇收藏
                 </span>
-                <el-button
-                  :icon="FolderAdd"
-                  text
-                  size="small"
-                  @click="openFolderCreate"
-                >
-                  新建
-                </el-button>
+                <div class="shelf-toolbar__actions">
+                  <el-button :icon="FolderAdd" plain @click="openFolderCreate">
+                    新建收藏夹
+                  </el-button>
+                  <el-button
+                    :icon="Refresh"
+                    plain
+                    :loading="foldersLoading"
+                    @click="refreshFolders"
+                  >
+                    刷新
+                  </el-button>
+                  <el-button :icon="StarFilled" plain @click="goLibrary">
+                    去检索文献
+                  </el-button>
+                </div>
               </div>
-              <div class="folder-rail__list">
+
+              <div class="folder-grid">
                 <button
                   type="button"
-                  class="folder-chip"
-                  :class="{ 'is-active': activeFolderId === undefined }"
-                  @click="selectFolder(undefined)"
+                  class="folder-card"
+                  @click="openFolder(undefined)"
                 >
-                  <span>全部收藏</span>
-                  <em>{{ allFavoritesTotal }}</em>
+                  <span class="folder-card__head">
+                    <el-icon><StarFilled /></el-icon>
+                    <strong>全部收藏</strong>
+                  </span>
+                  <span class="folder-card__count">{{ allFavoritesTotal }}</span>
+                  <span class="folder-card__desc">不分收藏夹，查看全部已收藏文献</span>
                 </button>
+
                 <button
                   type="button"
-                  class="folder-chip"
-                  :class="{ 'is-active': activeFolderId === UNCLASSIFIED }"
-                  @click="selectFolder(UNCLASSIFIED)"
+                  class="folder-card"
+                  @click="openFolder(UNCLASSIFIED)"
                 >
-                  <span>未分类</span>
+                  <span class="folder-card__head">
+                    <el-icon><FolderOpened /></el-icon>
+                    <strong>未分类</strong>
+                  </span>
+                  <span class="folder-card__count">{{ unclassifiedTotal }}</span>
+                  <span class="folder-card__desc">尚未归入任何收藏夹的文献</span>
                 </button>
+
                 <div
                   v-for="folder in folders"
                   :key="folder.id"
-                  class="folder-row"
-                  :class="{ 'is-active': String(activeFolderId) === String(folder.id) }"
+                  class="folder-card folder-card--managed"
                 >
                   <button
                     type="button"
-                    class="folder-chip"
-                    @click="selectFolder(folder.id)"
+                    class="folder-card__open"
+                    @click="openFolder(folder.id)"
                   >
-                    <span>{{ folder.name }}</span>
-                    <em>{{ folderCountText(folder) }}</em>
+                    <span class="folder-card__head">
+                      <el-icon><FolderOpened /></el-icon>
+                      <strong>{{ folder.name }}</strong>
+                    </span>
+                    <span class="folder-card__count">
+                      {{ folderCountText(folder) }}
+                    </span>
+                    <span class="folder-card__desc">
+                      {{ folder.description || '暂无说明' }}
+                    </span>
                   </button>
-                  <span class="folder-row__actions">
+                  <span class="folder-card__actions">
                     <el-button
                       :icon="EditPen"
                       text
@@ -559,130 +632,141 @@ onMounted(async () => {
                     />
                   </span>
                 </div>
-                <p v-if="!folders.length && !foldersLoading" class="folder-rail__hint">
-                  还没有收藏夹，点「新建」按主题建一个
-                </p>
               </div>
+
+              <p v-if="!folders.length && !foldersLoading" class="folder-overview__hint">
+                还没有收藏夹，点「新建收藏夹」按主题建一个，收藏文献时就能直接归类
+              </p>
             </div>
 
-            <div class="shelf-toolbar">
-              <span class="shelf-toolbar__info">
-                共 {{ favoritesTotal }} 篇收藏，本页累计阅读
-                {{ totalFavoriteReadCount }} 次
-              </span>
-              <div class="shelf-toolbar__actions">
-                <el-button
-                  :icon="Refresh"
-                  plain
-                  :loading="favoritesLoading"
-                  @click="loadFavorites"
-                >
-                  刷新
+            <!-- 第二层：某个收藏夹内的文献 -->
+            <template v-else>
+              <div class="folder-detail__bar">
+                <el-button :icon="ArrowLeft" text size="small" @click="backToFolders">
+                  全部收藏夹
                 </el-button>
-                <el-button :icon="StarFilled" plain @click="goLibrary">
-                  去检索文献
-                </el-button>
+                <span class="folder-detail__title">{{ currentFolderName }}</span>
               </div>
-            </div>
 
-            <div v-loading="favoritesLoading">
-              <div v-if="favorites.length" class="shelf-list">
-                <article
-                  v-for="item in favorites"
-                  :key="item.id"
-                  class="shelf-card"
-                >
-                  <div class="shelf-card__main">
-                    <h4>{{ item.literatureTitle || '未命名文献' }}</h4>
-                    <div class="shelf-card__tags">
-                      <span>{{ item.author || '未知作者' }}</span>
-                      <span>
-                        {{ displayCategoryName(item.categoryName ?? null) }}
-                      </span>
-                      <span>阅读 {{ item.readCount ?? 0 }} 次</span>
-                      <span>收藏于 {{ formatDateTime(item.createdAt) }}</span>
-                      <el-tag
-                        v-if="item.folderName"
-                        size="small"
-                        effect="plain"
-                      >
-                        {{ item.folderName }}
-                      </el-tag>
-                      <el-tag v-else size="small" effect="plain" type="info">
-                        未分类
-                      </el-tag>
+              <div class="shelf-toolbar">
+                <span class="shelf-toolbar__info">
+                  共 {{ favoritesTotal }} 篇收藏，本页累计阅读
+                  {{ totalFavoriteReadCount }} 次
+                </span>
+                <div class="shelf-toolbar__actions">
+                  <el-button
+                    :icon="Refresh"
+                    plain
+                    :loading="favoritesLoading"
+                    @click="loadFavorites"
+                  >
+                    刷新
+                  </el-button>
+                  <el-button :icon="StarFilled" plain @click="goLibrary">
+                    去检索文献
+                  </el-button>
+                </div>
+              </div>
+
+              <div v-loading="favoritesLoading">
+                <div v-if="favorites.length" class="shelf-list">
+                  <article
+                    v-for="item in favorites"
+                    :key="item.id"
+                    class="shelf-card"
+                  >
+                    <div class="shelf-card__main">
+                      <h4>{{ item.literatureTitle || '未命名文献' }}</h4>
+                      <div class="shelf-card__tags">
+                        <span>{{ item.author || '未知作者' }}</span>
+                        <span>
+                          {{ displayCategoryName(item.categoryName ?? null) }}
+                        </span>
+                        <span>阅读 {{ item.readCount ?? 0 }} 次</span>
+                        <span>收藏于 {{ formatDateTime(item.createdAt) }}</span>
+                        <el-tag
+                          v-if="item.folderName"
+                          size="small"
+                          effect="plain"
+                        >
+                          {{ item.folderName }}
+                        </el-tag>
+                        <el-tag v-else size="small" effect="plain" type="info">
+                          未分类
+                        </el-tag>
+                      </div>
                     </div>
-                  </div>
-                  <div class="shelf-card__actions">
-                    <el-dropdown
-                      trigger="click"
-                      @command="(command: Id) => moveFavorite(item, command)"
-                    >
-                      <el-button :icon="FolderOpened" size="small" plain>
-                        移动到
+                    <div class="shelf-card__actions">
+                      <el-dropdown
+                        trigger="click"
+                        @command="(command: Id) => moveFavorite(item, command)"
+                      >
+                        <el-button :icon="FolderOpened" size="small" plain>
+                          移动到
+                        </el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item :command="UNCLASSIFIED">
+                              未分类
+                            </el-dropdown-item>
+                            <el-dropdown-item
+                              v-for="folder in folders"
+                              :key="folder.id"
+                              :command="folder.id"
+                            >
+                              {{ folder.name }}
+                            </el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
+                      <el-button
+                        :icon="Document"
+                        size="small"
+                        type="primary"
+                        plain
+                        @click="openDetail(item.literatureId)"
+                      >
+                        查看详情
                       </el-button>
-                      <template #dropdown>
-                        <el-dropdown-menu>
-                          <el-dropdown-item :command="UNCLASSIFIED">
-                            未分类
-                          </el-dropdown-item>
-                          <el-dropdown-item
-                            v-for="folder in folders"
-                            :key="folder.id"
-                            :command="folder.id"
-                          >
-                            {{ folder.name }}
-                          </el-dropdown-item>
-                        </el-dropdown-menu>
-                      </template>
-                    </el-dropdown>
-                    <el-button
-                      :icon="Document"
-                      size="small"
-                      type="primary"
-                      plain
-                      @click="openDetail(item.literatureId)"
-                    >
-                      查看详情
-                    </el-button>
-                    <el-button
-                      :icon="Reading"
-                      size="small"
-                      @click="openReader(item.literatureId)"
-                    >
-                      在线阅读
-                    </el-button>
-                    <el-button
-                      :icon="Delete"
-                      size="small"
-                      text
-                      type="danger"
-                      :loading="favoritesRemovingId === item.literatureId"
-                      @click="removeFavorite(item)"
-                    >
-                      取消收藏
-                    </el-button>
-                  </div>
-                </article>
+                      <el-button
+                        :icon="Reading"
+                        size="small"
+                        @click="openReader(item.literatureId)"
+                      >
+                        在线阅读
+                      </el-button>
+                      <el-button
+                        :icon="Delete"
+                        size="small"
+                        text
+                        type="danger"
+                        :loading="favoritesRemovingId === item.literatureId"
+                        @click="removeFavorite(item)"
+                      >
+                        取消收藏
+                      </el-button>
+                    </div>
+                  </article>
+                </div>
+                <el-empty
+                  v-else
+                  description="该收藏夹下还没有文献，去检索页挑几篇感兴趣的论文吧"
+                />
               </div>
-              <el-empty
-                v-else
-                description="该收藏夹下还没有文献，去检索页挑几篇感兴趣的论文吧"
-              />
-            </div>
 
-            <div class="shelf-pager">
-              <el-pagination
-                v-model:current-page="favoriteQuery.page"
-                v-model:page-size="favoriteQuery.size"
-                :total="favoritesTotal"
-                :page-sizes="[10, 20, 50]"
-                layout="total, sizes, prev, pager, next"
-                background
-                @current-change="loadFavorites"
-                @size-change="loadFavorites"
-              />
-            </div>
+              <div class="shelf-pager">
+                <el-pagination
+                  v-model:current-page="favoriteQuery.page"
+                  v-model:page-size="favoriteQuery.size"
+                  :total="favoritesTotal"
+                  :page-sizes="[10, 20, 50]"
+                  layout="total, sizes, prev, pager, next"
+                  background
+                  @current-change="loadFavorites"
+                  @size-change="loadFavorites"
+                />
+              </div>
+            </template>
           </div>
         </el-tab-pane>
 

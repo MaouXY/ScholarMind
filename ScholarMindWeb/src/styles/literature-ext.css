@@ -479,99 +479,119 @@
   justify-content: flex-end;
 }
 
-/* 收藏夹侧栏：全部 / 未分类 / 自定义夹 */
-.folder-rail {
+/* 收藏第一层：收藏夹条目网格 */
+.folder-overview {
   display: grid;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid rgba(105, 132, 161, 0.14);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.6);
+  gap: 14px;
 }
 
-.folder-rail__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.folder-rail__caption {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.folder-rail__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.folder-rail__hint {
+.folder-overview__hint {
   margin: 0;
+  padding: 14px 16px;
+  border: 1px dashed rgba(105, 132, 161, 0.28);
+  border-radius: var(--radius);
   color: var(--color-subtle);
-  font-size: 12px;
-}
-
-.folder-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding-right: 2px;
-  border-radius: 999px;
-  transition: background 160ms ease;
-}
-
-.folder-row.is-active {
-  background: rgba(23, 107, 255, 0.08);
-}
-
-.folder-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: 1px solid rgba(105, 132, 161, 0.22);
-  border-radius: 999px;
-  background: #fff;
-  color: #33506f;
   font-size: 13px;
-  line-height: 1.5;
+}
+
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  gap: 12px;
+}
+
+.folder-card {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid rgba(105, 132, 161, 0.18);
+  border-radius: var(--radius);
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   transition:
     border-color 160ms ease,
-    color 160ms ease;
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
-.folder-chip:hover,
-.folder-chip:focus-visible {
-  border-color: rgba(23, 107, 255, 0.45);
+.folder-card:hover,
+.folder-card:focus-visible {
+  border-color: rgba(23, 107, 255, 0.42);
+  box-shadow: 0 8px 20px rgba(20, 40, 80, 0.08);
+  transform: translateY(-1px);
+}
+
+.folder-card--managed {
+  padding: 0;
+  cursor: default;
+}
+
+.folder-card--managed:hover {
+  transform: none;
+}
+
+.folder-card__open {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-card__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #33506f;
+  font-size: 14px;
+}
+
+.folder-card__head .el-icon {
   color: var(--color-accent);
 }
 
-.folder-chip.is-active {
-  border-color: var(--color-accent);
-  background: rgba(23, 107, 255, 0.1);
+.folder-card__count {
   color: var(--color-accent);
+  font-size: 24px;
   font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
 }
 
-.folder-chip em {
+.folder-card__desc {
   color: var(--color-subtle);
   font-size: 12px;
-  font-style: normal;
+  line-height: 1.5;
 }
 
-.folder-row .folder-chip {
-  border-color: transparent;
-  background: transparent;
-}
-
-.folder-row__actions {
+.folder-card__actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: inline-flex;
   gap: 0;
+}
+
+/* 收藏第二层：某个收藏夹内的文献 */
+.folder-detail__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+
+.folder-detail__title {
+  color: #1f3a56;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {
