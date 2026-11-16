@@ -30,14 +30,25 @@ public class LiteratureController {
     private final LiteratureDownloadService literatureDownloadService;
     private final CitationService citationService;
 
+    /**
+     * 文献检索与列表。
+     *
+     * @param searchField 检索维度：theme / keywords / fulltext / author / abstract / references / source
+     * @param yearFrom    发表年度下限（含）
+     * @param yearTo      发表年度上限（含）
+     */
     @GetMapping
     public ApiResponse<PageResult<LiteratureResponse>> list(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "10") long size,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String searchField,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String literatureType) {
-        return ApiResponse.success(literatureService.list(page, size, keyword, categoryId, literatureType));
+            @RequestParam(required = false) String literatureType,
+            @RequestParam(required = false) Integer yearFrom,
+            @RequestParam(required = false) Integer yearTo) {
+        return ApiResponse.success(literatureService.list(page, size, keyword, searchField,
+                categoryId, literatureType, yearFrom, yearTo));
     }
 
     @GetMapping("/{id}")

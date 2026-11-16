@@ -142,12 +142,12 @@ public class LiteratureAiService {
     private LiteratureSearchResponse doSemanticSearch(LiteratureSearchRequest request, CurrentUser currentUser) {
         List<LiteratureReferenceChunkResponse> references = searchChunks(request.query(), request.categoryId(), request.limit(), "literature-semantic-search");
         List<Long> literatureIds = references.stream().map(LiteratureReferenceChunkResponse::literatureId).distinct().toList();
-        List<LiteratureResponse> literatures = literatureIds.isEmpty()
+        List<Literature> hitLiteratures = literatureIds.isEmpty()
                 ? List.of()
                 : literatureMapper.selectBatchIds(literatureIds).stream()
                 .filter(item -> isReadable(item, currentUser))
-                .map(item -> literatureService.toResponse(item, null))
                 .toList();
+        List<LiteratureResponse> literatures = literatureService.toResponses(hitLiteratures);
         return new LiteratureSearchResponse(request.query(), literatures, references, null);
     }
 

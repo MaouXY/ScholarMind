@@ -1,971 +1,425 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  Connection,
-  InfoFilled,
-  Notebook,
-  Reading,
-  Search,
-  Star,
-  StarFilled,
-} from '@element-plus/icons-vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Search } from '@element-plus/icons-vue'
 
 import {
-  createReadingNote,
-  deleteReadingNote,
-  favoriteLiterature,
-  getLiteratureView,
-  getReadingHistory,
   hybridSearch,
   listCategories,
   listLiteratures,
-  listReadingNotes,
-  markLiteratureRead,
   naturalLanguageSearch,
-  semanticSearch,
-  unfavoriteLiterature,
-  updateReadingNote,
 } from '@/api/literature'
 import { displayCategoryName, displayLiteratureType } from '@/utils/format'
 import '@/styles/literature-ext.css'
-import type {
-  Id,
-  Literature,
-  LiteratureCategory,
-  LiteratureDetail,
-  LiteratureReferenceChunk,
-  LiteratureSearchResult,
-  LiteratureType,
-  ReadingHistory,
-  ReadingNote,
-  ReadingNotePayload,
+import '@/styles/search-results.css'
+import {
+  LITERATURE_TYPE_OPTIONS,
+  SEARCH_FIELD_OPTIONS,
+  type Id,
+  type Literature,
+  type LiteratureCategory,
+  type LiteratureSearchField,
+  type LiteratureType,
 } from '@/types/literature'
 
-const categories = ref<LiteratureCategory[]>([])
-
-// 文献类别枚举：与后端 LiteratureRequest 的 @Pattern 保持一致
-const literatureTypeOptions = ['期刊论文', '会议论文', '学位论文', '图书', '预印本', '其他']
-
-const literatures = ref<Literature[]>([])
-const selected = ref<Literature | null>(null)
-const detail = ref<LiteratureDetail | null>(null)
-const notes = ref<ReadingNote[]>([])
-const notesTotal = ref(0)
-const selectedNote = ref<ReadingNote | null>(null)
-const searchInsight = ref<LiteratureSearchResult | null>(null)
-const readingHistory = ref<ReadingHistory | null>(null)
-const loading = ref(false)
-const detailLoading = ref(false)
-const listFailed = ref(false)
-const detailFailed = ref(false)
-const notesFailed = ref(false)
-const previewVisible = ref(false)
-const lastSearch = ref<'keyword' | 'smart'>('keyword')
-const noteSaving = ref(false)
-const ragSearching = ref(false)
-const noteDrawerVisible = ref(false)
-const noteMode = ref<'create' | 'edit'>('create')
-const favorited = ref(false)
-const favoriteLoading = ref(false)
-const abstractExpanded = ref(false)
-
+const route = useRoute()
 const router = useRouter()
 
-// 跳转到当前文献的独立页面：详情 / 在线阅读
-function openLiteraturePage(target: 'detail' | 'read') {
-  const literatureId = currentLiterature.value?.id
-  if (!literatureId) {
-    ElMessage.warning('请先选择一篇文献')
-    return
-  }
-  const suffix = target === 'detail' ? '' : '/read'
-  router.push(`/student/literature/${literatureId}${suffix}`)
-}
+/** 年度筛选区间：2017-2026，与需求一致 */
+const YEAR_FROM = 2017
+const YEAR_TO = 2026
+const years = Array.from(
+  { length: YEAR_TO - YEAR_FROM + 1 },
+  (_, index) => YEAR_TO - index,
+)
 
-const query = reactive({
-  page: 1,
-  size: 8,
-  keyword: '',
-  categoryId: undefined as Id | undefined,
-  literatureType: undefined as LiteratureType | string | undefined,
-})
-
-const ragForm = reactive({
-  mode: 'natural' as 'natural' | 'semantic' | 'hybrid',
-  query: '',
-  limit: 5,
-})
-
-const noteForm = reactive<ReadingNotePayload>({
-  literatureId: '',
-  title: '',
-  content: '',
-  aiGenerated: 0,
-})
-
+const subjects = ref<LiteratureCategory[]>([])
+const literatures = ref<Literature[]>([])
 const total = ref(0)
+const loading = ref(false)
+const listFailed = ref(false)
 
-const currentLiterature = computed(
-  () => detail.value?.literature ?? selected.value,
-)
-
-const ragModeLabel = computed(() => {
-  if (ragForm.mode === 'semantic') return '语义向量'
-  if (ragForm.mode === 'hybrid') return '混合检索'
-  return '自然语言'
+/** 检索条件：URL query 是唯一真源，便于分享与前进后退 */
+const filters = reactive({
+  keyword: '',
+  searchField: 'theme' as LiteratureSearchField,
+  literatureType: undefined as LiteratureType | string | undefined,
+  categoryId: undefined as Id | undefined,
+  year: undefined as number | undefined,
+  page: 1,
+  size: 10,
 })
 
-type RetrievalBadge = {
-  label: string
-  tone: 'primary' | 'success' | 'info' | 'warning'
-}
+/** RAG 检索结果（来自首页的自然语言 / 混合检索） */
+const ragQuery = ref('')
+const ragMode = ref<'natural' | 'hybrid'>('natural')
+const ragReferences = ref(0)
 
-function scorePercent(score?: number | null) {
-  if (typeof score !== 'number' || Number.isNaN(score)) return 0
-  return Math.round(Math.min(1, Math.max(0, score)) * 100)
-}
+const isRagMode = computed(() => Boolean(ragQuery.value))
 
-// 语义 / 混合检索返回的引用片段可能携带稀疏、稠密名次与 RRF 融合分（旧数据可能为空）
-function referenceRankBadges(
-  reference: LiteratureReferenceChunk,
-): RetrievalBadge[] {
-  const badges: RetrievalBadge[] = []
-  if (typeof reference.sparseRank === 'number') {
-    badges.push({ label: `稀疏#${reference.sparseRank}`, tone: 'info' })
-  }
-  if (typeof reference.denseRank === 'number') {
-    badges.push({ label: `向量#${reference.denseRank}`, tone: 'success' })
-  }
-  if (typeof reference.rrfScore === 'number') {
-    badges.push({
-      label: `RRF ${reference.rrfScore.toFixed(3)}`,
-      tone: 'warning',
-    })
-  }
-  return badges
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return ''
-  return value.slice(0, 16).replace('T', ' ')
-}
-
-function truncateText(value: string, maxLength: number) {
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  if (!normalized) return '暂无'
-  return normalized.length > maxLength
-    ? `${normalized.slice(0, maxLength)}…`
-    : normalized
-}
-
-const categoryNameText = computed(() => {
-  const item = currentLiterature.value
-  if (!item) return '—'
-  if (item.categoryName) return displayCategoryName(item.categoryName)
-  const matched = categories.value.find(
-    (category) => category.id === item.categoryId,
-  )
-  return matched ? displayCategoryName(matched.name) : '—'
+const activeSubjectName = computed(() => {
+  const matched = subjects.value.find((item) => item.id === filters.categoryId)
+  return matched ? displayCategoryName(matched.name) : ''
 })
 
-const abstractText = computed(() =>
-  (currentLiterature.value?.abstractText ?? '').trim(),
-)
-
-const abstractLong = computed(() => abstractText.value.length > 90)
-
-const hasReadingHistory = computed(() => {
-  const history = readingHistory.value
-  if (!history) return false
-  return (
-    history.progress != null ||
-    history.lastPage != null ||
-    history.readDuration != null ||
-    Boolean(history.updatedAt)
-  )
-})
-
-const readingProgressText = computed(() => {
-  const history = readingHistory.value
-  if (!history || !hasReadingHistory.value) return '暂无阅读记录'
-  const parts: string[] = [
-    typeof history.progress === 'number'
-      ? `进度 ${Math.round(history.progress)}%`
-      : '进度 —',
-  ]
-  if (typeof history.lastPage === 'number' && history.lastPage > 0) {
-    parts.push(`分块/页码 ${history.lastPage}`)
+const resultSummary = computed(() => {
+  if (isRagMode.value) {
+    return `智能检索「${ragQuery.value}」命中 ${literatures.value.length} 篇`
   }
-  const updatedAt = formatDateTime(history.updatedAt)
-  parts.push(updatedAt ? `上次阅读 ${updatedAt}` : '上次阅读时间未记录')
-  return parts.join(' · ')
+  if (loading.value) return '正在检索…'
+  return `命中 ${total.value} 篇`
 })
-
-const latestNote = computed(() =>
-  [...notes.value].sort((left, right) => {
-    const leftTime = left.updatedAt ?? left.createdAt ?? ''
-    const rightTime = right.updatedAt ?? right.createdAt ?? ''
-    return rightTime.localeCompare(leftTime)
-  })[0],
-)
-
-const noteTotalText = computed(() => {
-  const totalCount = notesTotal.value
-  if (!totalCount) return '暂无阅读笔记'
-  const latest = latestNote.value
-  if (!latest) return `共 ${totalCount} 条`
-  return `共 ${totalCount} 条 · 最新：${truncateText(latest.content, 60)}`
-})
-
-async function loadReadingHistory(literatureId: Id) {
-  try {
-    readingHistory.value = await getReadingHistory(literatureId)
-  } catch (error) {
-    console.error(
-      'reading history detail failed, scenario=reading-history-detail, literatureId=%s',
-      literatureId,
-      error,
-    )
-    readingHistory.value = null
-  }
-}
-
-function resetNoteForm() {
-  Object.assign(noteForm, {
-    literatureId: currentLiterature.value?.id ?? '',
-    title: '',
-    content: '',
-    aiGenerated: 0,
-  })
-  selectedNote.value = null
-}
-
-function fillNoteForm(note: ReadingNote) {
-  selectedNote.value = note
-  Object.assign(noteForm, {
-    literatureId: note.literatureId,
-    title: note.title,
-    content: note.content,
-    aiGenerated: note.aiGenerated ?? 0,
-  })
-}
 
 async function fetchCategories() {
   try {
-    categories.value = await listCategories()
+    const categories = await listCategories()
+    subjects.value = categories.filter((item) => !item.parentId)
   } catch (error) {
     console.error(
       'category load failed, scenario=literature-category-list',
       error,
     )
-    categories.value = []
+    subjects.value = []
   }
 }
 
-async function fetchLiteratures() {
+/** 把 URL query 同步进本地筛选状态 */
+function syncFiltersFromRoute() {
+  const query = route.query
+  filters.keyword = typeof query.keyword === 'string' ? query.keyword : ''
+  filters.searchField =
+    typeof query.searchField === 'string'
+      ? (query.searchField as LiteratureSearchField)
+      : 'theme'
+  filters.literatureType =
+    typeof query.literatureType === 'string' ? query.literatureType : undefined
+  filters.year =
+    typeof query.year === 'string' ? Number(query.year) || undefined : undefined
+  filters.page = typeof query.page === 'string' ? Number(query.page) || 1 : 1
+  ragQuery.value = typeof query.rag === 'string' ? query.rag : ''
+  ragMode.value = query.mode === 'hybrid' ? 'hybrid' : 'natural'
+
+  // 学科按名称传参（首页卡片只掌握名称），这里反查 id
+  const subject = typeof query.subject === 'string' ? query.subject : ''
+  filters.categoryId = subject
+    ? subjects.value.find((item) => displayCategoryName(item.name) === subject)?.id
+    : undefined
+}
+
+/** 学科反查依赖分类已加载，两者都就绪后再查库 */
+async function loadResults() {
+  if (ragQuery.value) {
+    await runRagSearch()
+    return
+  }
   loading.value = true
   listFailed.value = false
-  lastSearch.value = 'keyword'
-  searchInsight.value = null
+  ragReferences.value = 0
   try {
-    const result = await listLiteratures(query)
+    const result = await listLiteratures({
+      page: filters.page,
+      size: filters.size,
+      keyword: filters.keyword || undefined,
+      searchField: filters.keyword ? filters.searchField : undefined,
+      categoryId: filters.categoryId,
+      literatureType: filters.literatureType,
+      yearFrom: filters.year,
+      yearTo: filters.year,
+    })
     literatures.value = result.items
     total.value = result.total
   } catch (error) {
     console.error(
-      'literature list failed, scenario=literature-search, keyword=%s, categoryId=%s, literatureType=%s',
-      query.keyword,
-      query.categoryId,
-      query.literatureType,
+      'literature list failed, scenario=literature-search, keyword=%s, searchField=%s, literatureType=%s, categoryId=%s, year=%s',
+      filters.keyword,
+      filters.searchField,
+      filters.literatureType,
+      filters.categoryId,
+      filters.year,
       error,
     )
     listFailed.value = true
     literatures.value = []
     total.value = 0
-    selected.value = null
-    detail.value = null
   } finally {
     loading.value = false
   }
 }
 
 async function runRagSearch() {
-  if (!ragForm.query.trim()) {
-    ElMessage.warning('请输入语义检索问题')
-    return
-  }
-
-  ragSearching.value = true
+  loading.value = true
   listFailed.value = false
-  lastSearch.value = 'smart'
   try {
     const payload = {
-      query: ragForm.query,
-      categoryId: query.categoryId,
-      limit: ragForm.limit,
+      query: ragQuery.value,
+      categoryId: filters.categoryId,
+      limit: 12,
     }
     const result =
-      ragForm.mode === 'semantic'
-        ? await semanticSearch(payload)
-        : ragForm.mode === 'hybrid'
-          ? await hybridSearch(payload)
-          : await naturalLanguageSearch(payload)
-    searchInsight.value = result
+      ragMode.value === 'hybrid'
+        ? await hybridSearch(payload)
+        : await naturalLanguageSearch(payload)
     literatures.value = result.literatures
     total.value = result.literatures.length
-    ElMessage.success('检索完成')
+    ragReferences.value = result.references.length
   } catch (error) {
     console.error(
-      'rag search failed, scenario=literature-rag-search, mode=%s, query=%s, categoryId=%s, limit=%s',
-      ragForm.mode,
-      ragForm.query,
-      query.categoryId,
-      ragForm.limit,
+      'rag search failed, scenario=literature-rag-search, mode=%s, query=%s, categoryId=%s',
+      ragMode.value,
+      ragQuery.value,
+      filters.categoryId,
       error,
     )
     listFailed.value = true
-    searchInsight.value = null
     literatures.value = []
     total.value = 0
-    selected.value = null
-    detail.value = null
   } finally {
-    ragSearching.value = false
+    loading.value = false
   }
 }
 
-async function fetchNotes(literatureId: Id) {
-  notesFailed.value = false
-  try {
-    const result = await listReadingNotes({ literatureId, page: 1, size: 20 })
-    notes.value = result.items
-    notesTotal.value = result.total
-  } catch (error) {
-    console.error(
-      'reading notes list failed, scenario=reading-note-list, literatureId=%s',
-      literatureId,
-      error,
-    )
-    notesFailed.value = true
-    notes.value = []
-    notesTotal.value = 0
+/** 条件变更统一走路由，watch(route.query) 负责触发查询 */
+function applyFilters(patch: Record<string, string | number | undefined>) {
+  const nextQuery: Record<string, string | number> = {}
+  const merged = {
+    keyword: filters.keyword || undefined,
+    searchField: filters.keyword ? filters.searchField : undefined,
+    literatureType: filters.literatureType,
+    subject: activeSubjectName.value || undefined,
+    year: filters.year,
+    rag: ragQuery.value || undefined,
+    mode: ragQuery.value ? ragMode.value : undefined,
+    page: filters.page > 1 ? filters.page : undefined,
+    ...patch,
   }
+  Object.entries(merged).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') nextQuery[key] = value as string | number
+  })
+  // 相同条件重复点击会产生冗余导航，忽略即可，不当作错误
+  router.push({ path: '/student/search', query: nextQuery }).catch(() => {})
 }
 
-async function chooseLiterature(item: Literature) {
-  selected.value = item
-  abstractExpanded.value = false
-  readingHistory.value = null
-  detailLoading.value = true
-  detailFailed.value = false
-  try {
-    const response = await getLiteratureView(item.id)
-    detail.value = response
-    selected.value = response.literature
-    favorited.value = response.favorited
-    notes.value = response.recentNotes ?? []
-    notesTotal.value = notes.value.length
-    readingHistory.value = response.readingHistory ?? null
-    // 旧版详情接口可能不返回阅读记录，仅在字段缺失时补一次请求
-    if (response.readingHistory === undefined) {
-      await loadReadingHistory(item.id)
-    }
-    await markLiteratureRead(item.id)
-    await fetchNotes(item.id)
-  } catch (error) {
-    console.error(
-      'literature detail view failed, scenario=literature-detail-view, literatureId=%s',
-      item.id,
-      error,
-    )
-    detailFailed.value = true
-    detail.value = null
-    favorited.value = false
-    notes.value = []
-    notesTotal.value = notes.value.length
-    readingHistory.value = null
-  } finally {
-    detailLoading.value = false
-  }
+function submitKeyword() {
+  applyFilters({ page: undefined })
 }
 
-function openNoteCreate() {
-  if (!currentLiterature.value) return
-  noteMode.value = 'create'
-  resetNoteForm()
-  noteForm.literatureId = currentLiterature.value.id
-  noteDrawerVisible.value = true
+function selectType(type?: LiteratureType | string) {
+  applyFilters({ literatureType: type, page: undefined })
 }
 
-function openNoteEdit(note: ReadingNote) {
-  noteMode.value = 'edit'
-  fillNoteForm(note)
-  noteDrawerVisible.value = true
+function selectSubject(categoryId?: Id) {
+  filters.categoryId = categoryId
+  const name = subjects.value.find((item) => item.id === categoryId)?.name
+  applyFilters({
+    subject: name ? displayCategoryName(name) : undefined,
+    page: undefined,
+  })
 }
 
-async function toggleFavorite() {
-  if (!currentLiterature.value || favoriteLoading.value) return
-  const literatureId = currentLiterature.value.id
-  const nextFavorited = !favorited.value
-  favoriteLoading.value = true
-  favorited.value = nextFavorited
-  try {
-    if (nextFavorited) {
-      await favoriteLiterature(literatureId)
-      ElMessage.success('已收藏')
-    } else {
-      await unfavoriteLiterature(literatureId)
-      ElMessage.success('已取消收藏')
-    }
-  } catch (error) {
-    // 请求失败时回滚到操作前的收藏状态，避免界面与后端不一致
-    favorited.value = !nextFavorited
-    ElMessage.error(
-      nextFavorited ? '收藏失败，请稍后重试' : '取消收藏失败，请稍后重试',
-    )
-    console.error(
-      'favorite toggle failed, scenario=literature-favorite-toggle, literatureId=%s, favorited=%s',
-      literatureId,
-      nextFavorited,
-      error,
-    )
-  } finally {
-    favoriteLoading.value = false
-  }
+function selectYear(year?: number) {
+  applyFilters({ year, page: undefined })
 }
 
-async function saveNote() {
-  if (!noteForm.title.trim() || !noteForm.content.trim()) {
-    ElMessage.warning('请填写笔记标题和内容')
-    return
-  }
-  noteSaving.value = true
-  try {
-    if (noteMode.value === 'edit' && selectedNote.value) {
-      await updateReadingNote(selectedNote.value.id, noteForm)
-    } else {
-      await createReadingNote(noteForm)
-    }
-    ElMessage.success('笔记已保存')
-    noteDrawerVisible.value = false
-    if (currentLiterature.value) {
-      await fetchNotes(currentLiterature.value.id)
-    }
-  } catch (error) {
-    console.error(
-      'reading note save failed, scenario=reading-note-save, noteId=%s, literatureId=%s, title=%s',
-      selectedNote.value?.id,
-      noteForm.literatureId,
-      noteForm.title,
-      error,
-    )
-  } finally {
-    noteSaving.value = false
-  }
+function clearAll() {
+  router.push({ path: '/student/search' }).catch(() => {})
 }
 
-async function removeNote(note: ReadingNote) {
-  try {
-    await ElMessageBox.confirm(
-      '删除后不可恢复，确认删除这条阅读笔记？',
-      '删除笔记',
-      {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-      },
-    )
-    await deleteReadingNote(note.id)
-    ElMessage.success('笔记已删除')
-    if (currentLiterature.value) {
-      await fetchNotes(currentLiterature.value.id)
-    }
-  } catch (error) {
-    if (error === 'cancel') return
-    console.error(
-      'reading note delete failed, scenario=reading-note-delete, noteId=%s, literatureId=%s',
-      note.id,
-      note.literatureId,
-      error,
-    )
-  }
+function goPage(page: number) {
+  applyFilters({ page })
+}
+
+function openDetail(item: Literature) {
+  router.push(`/student/literature/${item.id}`)
+}
+
+function formatDate(value?: string | null) {
+  return value || '未标注'
 }
 
 onMounted(async () => {
   await fetchCategories()
-  await fetchLiteratures()
+  syncFiltersFromRoute()
+  await loadResults()
 })
+
+watch(
+  () => route.query,
+  async () => {
+    syncFiltersFromRoute()
+    await loadResults()
+  },
+)
 </script>
 
 <template>
   <section class="library-page">
-
-
-    <div class="library-layout">
-      <aside class="glass-panel search-panel" aria-label="文献检索">
+    <div class="search-results-layout">
+      <aside class="glass-panel search-panel" aria-label="辅助分类">
         <div class="panel-heading">
           <div>
-
-            <h3>检索条件</h3>
+            <p class="panel__eyebrow">辅助分类</p>
+            <h3>学科</h3>
           </div>
         </div>
-
-        <el-form label-position="top">
-          <el-form-item label="关键词">
-            <el-input
-              v-model="query.keyword"
-              :prefix-icon="Search"
-              placeholder="标题、作者、关键词、摘要"
-              clearable
-              @keyup.enter="fetchLiteratures"
-            />
-          </el-form-item>
-          <el-form-item label="学科分类">
-            <el-select
-              v-model="query.categoryId"
-              clearable
-              placeholder="全部分类"
-            >
-              <el-option
-                v-for="category in categories"
-                :key="category.id"
-                :label="displayCategoryName(category.name)"
-                :value="category.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="文献类别">
-            <el-select v-model="query.literatureType" clearable placeholder="全部类别">
-              <el-option
-                v-for="option in literatureTypeOptions"
-                :key="option"
-                :label="option"
-                :value="option"
-              />
-            </el-select>
-          </el-form-item>
-          <el-button
-            type="primary"
-            class="wide-action"
-            :loading="loading"
-            @click="fetchLiteratures"
+        <div class="filter-chip-stack">
+          <button
+            type="button"
+            class="filter-chip"
+            :class="{ 'is-active': !filters.categoryId }"
+            @click="selectSubject(undefined)"
           >
-            执行检索
-          </el-button>
-        </el-form>
-
-        <section class="rag-search-box" aria-label="智能检索">
-          <div class="panel-heading">
-            <div>
-
-              <h3>智能检索</h3>
-            </div>
-            <el-tag effect="plain">{{ ragModeLabel }}</el-tag>
-          </div>
-          <el-segmented
-            v-model="ragForm.mode"
-            :options="[
-              { label: '自然语言', value: 'natural' },
-              { label: '语义检索', value: 'semantic' },
-              { label: '混合检索', value: 'hybrid' },
-            ]"
-          />
-          <el-input
-            v-model="ragForm.query"
-            type="textarea"
-            :rows="2"
-            placeholder="用研究问题描述你想找的文献"
-          />
-          <div class="rag-search-box__footer">
-            <el-input-number
-              v-model="ragForm.limit"
-              :min="1"
-              :max="10"
-              controls-position="right"
-            />
-            <el-button
-              :icon="Connection"
-              type="primary"
-              :loading="ragSearching"
-              @click="runRagSearch"
-            >
-              检索
-            </el-button>
-          </div>
-        </section>
-
-        <div class="metric-row">
-          <span>
-            <strong>{{ total }}</strong>
-            命中文献
-          </span>
-          <span>
-            <strong>{{ categories.length }}</strong>
-            分类
-          </span>
+            全部学科
+          </button>
+          <button
+            v-for="item in subjects"
+            :key="item.id"
+            type="button"
+            class="filter-chip"
+            :class="{ 'is-active': filters.categoryId === item.id }"
+            @click="selectSubject(item.id)"
+          >
+            {{ displayCategoryName(item.name) }}
+          </button>
         </div>
 
-        <section v-if="searchInsight" class="rag-intent-panel">
+        <div class="panel-heading filter-heading">
+          <div>
+            <h3>年度</h3>
+          </div>
+        </div>
+        <div class="filter-chip-stack filter-chip-stack--year">
+          <button
+            type="button"
+            class="filter-chip"
+            :class="{ 'is-active': !filters.year }"
+            @click="selectYear(undefined)"
+          >
+            全部年度
+          </button>
+          <button
+            v-for="year in years"
+            :key="year"
+            type="button"
+            class="filter-chip"
+            :class="{ 'is-active': filters.year === year }"
+            @click="selectYear(year)"
+          >
+            {{ year }}
+          </button>
+        </div>
 
-          <p>
-            {{
-              searchInsight.parsedIntent ||
-              '已按研究问题检索相关文献。'
-            }}
-          </p>
-          <strong>{{ searchInsight.references.length }} 条证据片段</strong>
-        </section>
+        <el-button class="wide-action clear-action" plain @click="clearAll">
+          清空筛选
+        </el-button>
       </aside>
 
-      <section class="result-stack" aria-label="检索结果" v-loading="loading || ragSearching">
-        <div class="results-heading">
-          <h2>{{ searchInsight ? '检索结果' : '文献库' }} <small>{{ total }} 篇</small></h2>
-          <el-button v-if="searchInsight" text @click="fetchLiteratures">全部文献</el-button>
-        </div>
-        <el-empty v-if="listFailed" description="文献加载失败">
-          <el-button type="primary" @click="lastSearch === 'smart' ? runRagSearch() : fetchLiteratures()">重试</el-button>
-        </el-empty>
-        <el-empty v-else-if="!loading && !ragSearching && !literatures.length" description="没有找到相关文献" />
-        <article
-          v-for="item in literatures"
-          :key="item.id"
-          class="paper-card"
-          :class="{ 'is-active': selected?.id === item.id }"
-          tabindex="0"
-          role="button"
-          @click="chooseLiterature(item); previewVisible = true"
-          @keydown.enter="chooseLiterature(item); previewVisible = true"
-          @keydown.space.prevent="chooseLiterature(item); previewVisible = true"
-        >
-          <div class="paper-card__status">
-            <el-tag size="small" effect="plain">{{
-              displayLiteratureType(item.literatureType)
-            }}</el-tag>
-          </div>
-          <h3>{{ item.title }}</h3>
-          <p>
-            {{
-              item.abstractText || '暂无摘要。'
-            }}
-          </p>
-          <div class="paper-card__meta">
-            <span>{{ item.author || '未知作者' }}</span>
-            <span>{{ item.source || '未填写来源' }}</span>
-            <span>{{ item.publishDate || '出版日期未知' }}</span>
-          </div>
-          <div class="paper-card__actions">
-            <el-button text type="primary" @click.stop="router.push(`/student/literature/${item.id}/read`)">在线阅读</el-button>
-            <el-button text @click.stop="router.push(`/student/literature/${item.id}`)">详情与引用</el-button>
-          </div>
-        </article>
+      <div class="results-column">
+        <section class="glass-panel type-bar" aria-label="文献类别">
+          <button
+            type="button"
+            class="type-tab"
+            :class="{ 'is-active': !filters.literatureType }"
+            @click="selectType(undefined)"
+          >
+            全部
+          </button>
+          <button
+            v-for="item in LITERATURE_TYPE_OPTIONS"
+            :key="item"
+            type="button"
+            class="type-tab"
+            :class="{ 'is-active': filters.literatureType === item }"
+            @click="selectType(item)"
+          >
+            {{ item }}
+          </button>
+        </section>
+
+        <section class="glass-panel search-bar-panel" aria-label="检索">
+          <el-select v-model="filters.searchField" class="search-bar__field" aria-label="检索维度">
+            <el-option
+              v-for="field in SEARCH_FIELD_OPTIONS"
+              :key="field.value"
+              :label="field.label"
+              :value="field.value"
+            />
+          </el-select>
+          <el-input
+            v-model="filters.keyword"
+            class="search-bar__input"
+            clearable
+            placeholder="在结果中检索"
+            @keyup.enter="submitKeyword"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+          <el-button type="primary" @click="submitKeyword">检索</el-button>
+        </section>
 
         <section
-          v-if="searchInsight && searchInsight.references.length"
-          class="glass-panel result-references"
-          aria-label="检索命中证据片段"
+          class="result-stack"
+          aria-label="检索结果"
+          v-loading="loading"
         >
-          <div class="panel-heading">
-            <div>
-
-              <h3>命中证据片段</h3>
-            </div>
-            <el-tag size="small" effect="plain">
-              {{ searchInsight.references.length }} 条
-            </el-tag>
-          </div>
-          <div class="reference-list">
-            <article
-              v-for="reference in searchInsight.references"
-              :key="reference.id"
-            >
-              <div>
-                <strong>证据片段 {{ reference.chunkIndex != null ? reference.chunkIndex + 1 : '' }}</strong>
-                <span>{{ scorePercent(reference.score) }}%</span>
-              </div>
-              <div
-                v-if="referenceRankBadges(reference).length"
-                class="retrieval-badge-row"
-              >
-                <el-tag
-                  v-for="badge in referenceRankBadges(reference)"
-                  :key="badge.label"
-                  size="small"
-                  effect="plain"
-                  :type="badge.tone"
-                >
-                  {{ badge.label }}
-                </el-tag>
-              </div>
-              <p>{{ reference.content }}</p>
-            </article>
-          </div>
-        </section>
-        <el-pagination
-          v-if="!searchInsight && !listFailed && total > query.size"
-          v-model:current-page="query.page"
-          :page-size="query.size"
-          :total="total"
-          layout="total, prev, pager, next"
-          @current-change="fetchLiteratures"
-        />
-      </section>
-
-      <el-drawer v-model="previewVisible" title="文献预览" size="min(620px, 100vw)">
-      <section
-        class="reader-surface reader-surface--stage3"
-        aria-label="论文解析阅读器"
-      >
-        <el-empty v-if="detailFailed" description="文献详情加载失败">
-          <el-button v-if="selected" @click="chooseLiterature(selected)">重试</el-button>
-        </el-empty>
-        <template v-else-if="currentLiterature">
-          <div class="reader-toolbar" aria-label="文献操作">
-            <el-button
-              :icon="favorited ? StarFilled : Star"
-              type="primary"
-              plain
-              :loading="favoriteLoading"
-              @click="toggleFavorite"
-            >
-              {{ favorited ? '已收藏' : '收藏' }}
-            </el-button>
-            <el-button
-              :icon="InfoFilled"
-              type="primary"
-              @click="openLiteraturePage('detail')"
-            >
-              查看详情
-            </el-button>
-            <el-button :icon="Reading" @click="openLiteraturePage('read')"
-              >在线阅读</el-button
-            >
+          <div class="results-heading">
+            <h2>
+              {{ resultSummary }}
+              <small v-if="activeSubjectName">· {{ activeSubjectName }}</small>
+              <small v-if="filters.year">· {{ filters.year }} 年</small>
+              <small v-if="!isRagMode && ragReferences">· 引用片段 {{ ragReferences }} 条</small>
+            </h2>
           </div>
 
-          <article class="reader-paper" v-loading="detailLoading">
-            <div class="reader-titlebar">
-              <div>
-                <p class="panel__eyebrow">{{ categoryNameText }}</p>
-                <h2>{{ currentLiterature.title }}</h2>
-              </div>
-              <el-tag :type="favorited ? 'success' : 'info'" effect="light">
-                {{ favorited ? '已收藏' : '未收藏' }}
-              </el-tag>
-            </div>
-
-            <section class="reader-section detail-info" aria-label="文献详情">
-              <div class="panel-heading">
-                <div>
-
-                  <h3>文献详情</h3>
-                </div>
-              </div>
-              <dl class="detail-info__list">
-                <div class="detail-info__row">
-                  <dt>作者</dt>
-                  <dd>{{ currentLiterature.author || '—' }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>文献类别</dt>
-                  <dd>{{ displayLiteratureType(currentLiterature.literatureType) }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>出版日期</dt>
-                  <dd>{{ currentLiterature.publishDate || '—' }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>在线公开</dt>
-                  <dd>{{ currentLiterature.onlinePublishDate || '—' }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>学科</dt>
-                  <dd>{{ categoryNameText }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>关键词</dt>
-                  <dd>{{ currentLiterature.keywords || '暂无' }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>来源</dt>
-                  <dd>{{ currentLiterature.source || '—' }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>摘要</dt>
-                  <dd>
-                    <p
-                      v-if="abstractText"
-                      class="detail-info__abstract"
-                      :class="{ 'is-expanded': abstractExpanded }"
-                    >
-                      {{ abstractText }}
-                    </p>
-                    <span v-else class="detail-info__empty">暂无摘要</span>
-                    <el-button
-                      v-if="abstractLong"
-                      text
-                      type="primary"
-                      class="detail-info__toggle"
-                      @click="abstractExpanded = !abstractExpanded"
-                    >
-                      {{ abstractExpanded ? '收起' : '展开全文' }}
-                    </el-button>
-                  </dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>阅读进度</dt>
-                  <dd>{{ readingProgressText }}</dd>
-                </div>
-                <div class="detail-info__row">
-                  <dt>阅读笔记</dt>
-                  <dd>{{ noteTotalText }}</dd>
-                </div>
-              </dl>
-            </section>
-
-            <section class="note-board">
-              <div class="panel-heading">
-                <div>
-
-                  <h3>阅读笔记</h3>
-                </div>
-                <el-button :icon="Notebook" plain @click="openNoteCreate()"
-                  >添加</el-button
-                >
-              </div>
-              <div class="note-list" v-if="notes.length">
-                <article v-for="note in notes" :key="note.id" class="note-card">
-                  <div>
-                    <el-tag v-if="note.aiGenerated" size="small" type="success"
-                      >AI</el-tag
-                    >
-                    <h4>{{ note.title }}</h4>
-                    <p>{{ note.content }}</p>
-                  </div>
-                  <div class="note-actions">
-                    <el-button text @click="openNoteEdit(note)">编辑</el-button>
-                    <el-button text type="danger" @click="removeNote(note)"
-                      >删除</el-button
-                    >
-                  </div>
-                </article>
-              </div>
-              <el-empty v-else :description="notesFailed ? '笔记加载失败，请重试' : '暂无笔记'" />
-            </section>
-          </article>
-        </template>
-        <el-empty v-else description="检索后选择一篇文献开始阅读" />
-      </section>
-      </el-drawer>
-    </div>
-
-    <el-drawer
-      v-model="noteDrawerVisible"
-      :title="noteMode === 'create' ? '新建阅读笔记' : '编辑阅读笔记'"
-      size="480px"
-    >
-      <el-form label-position="top">
-        <el-form-item label="标题">
-          <el-input v-model="noteForm.title" />
-        </el-form-item>
-        <el-form-item label="来源">
-          <el-segmented
-            v-model="noteForm.aiGenerated"
-            :options="[
-              { label: '手动笔记', value: 0 },
-              { label: 'AI 解析', value: 1 },
-            ]"
+          <el-empty
+            v-if="listFailed"
+            description="检索失败，请稍后重试"
           />
-        </el-form-item>
-        <el-form-item label="内容">
-          <el-input v-model="noteForm.content" type="textarea" :rows="10" />
-        </el-form-item>
-        <el-button
-          class="wide-action drawer-action"
-          type="primary"
-          :loading="noteSaving"
-          @click="saveNote"
-        >
-          保存笔记
-        </el-button>
-      </el-form>
-    </el-drawer>
+
+          <article
+            v-for="item in literatures"
+            v-else
+            :key="item.id"
+            class="glass-panel result-row"
+            @click="openDetail(item)"
+          >
+            <h3 class="result-row__title">{{ item.title }}</h3>
+            <p class="result-row__authors">
+              {{ item.author || '作者未标注' }}
+            </p>
+            <p class="result-row__source">
+              {{ item.source || '来源未标注' }}
+              <span class="result-row__divider">|</span>
+              {{ displayLiteratureType(item.literatureType) }}
+              <span class="result-row__divider">|</span>
+              {{ formatDate(item.publishDate) }}
+            </p>
+            <div class="result-row__metrics">
+              <span>被引 {{ item.citationCount ?? 0 }}</span>
+              <span>下载 {{ item.downloadCount ?? 0 }}</span>
+              <span>阅读 {{ item.readCount ?? 0 }}</span>
+              <span>{{ displayCategoryName(item.categoryName) }}</span>
+            </div>
+          </article>
+
+          <el-empty
+            v-if="!loading && !listFailed && !literatures.length"
+            description="没有匹配的文献，试试换关键词或放宽筛选"
+          />
+
+          <el-pagination
+            v-if="!isRagMode && total > filters.size"
+            class="results-pager"
+            background
+            layout="prev, pager, next"
+            :current-page="filters.page"
+            :page-size="filters.size"
+            :total="total"
+            @current-change="goPage"
+          />
+        </section>
+      </div>
+    </div>
   </section>
 </template>
-
-<style scoped>
-/* 文献详情信息面板：沿用全局配色 token，窄屏下退化为上下两行 */
-.detail-info__list {
-  display: grid;
-  gap: 8px;
-  margin: 4px 0 0;
-}
-
-.detail-info__row {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid rgba(105, 132, 161, 0.16);
-}
-
-.detail-info__row dt {
-  margin: 0;
-  color: var(--color-subtle);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-}
-
-.detail-info__row dd {
-  margin: 0;
-  color: var(--color-text);
-  font-size: 14px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-
-.detail-info__abstract {
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  white-space: pre-wrap;
-}
-
-.detail-info__abstract.is-expanded {
-  display: block;
-  overflow: visible;
-}
-
-.detail-info__empty {
-  color: var(--color-subtle);
-}
-
-.detail-info__toggle.el-button {
-  height: auto;
-  min-height: 28px;
-  margin-top: 2px;
-  padding: 0;
-  font-size: 13px;
-}
-
-@media (max-width: 860px) {
-  .detail-info__row {
-    grid-template-columns: 72px minmax(0, 1fr);
-    gap: 8px;
-    padding: 9px 12px;
-  }
-}
-
-@media (max-width: 640px) {
-  .detail-info__row {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
-}
-</style>

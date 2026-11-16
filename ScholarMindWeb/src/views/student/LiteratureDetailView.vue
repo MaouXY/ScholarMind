@@ -16,29 +16,23 @@ import {
   favoriteLiterature,
   getLiteratureDownload,
   getLiteratureView,
+  listFavoriteFolders,
   unfavoriteLiterature,
 } from '@/api/literature'
 import {
+  createCitation,
   deleteCitation,
   listCitations,
   listLiteratureCitations,
-  createCitation,
 } from '@/api/citation'
-import {
-  downloadCitationReferences,
-  openLiteratureFile,
-} from '@/utils/download'
+import { downloadCitationReferences, openLiteratureFile } from '@/utils/download'
 import { displayCategoryName, displayLiteratureType } from '@/utils/format'
 import type {
   CitationRecord,
   CitationStyle,
   CitationStyleItem,
 } from '@/types/citation'
-import type {
-  Id,
-  Literature,
-  LiteratureDetail,
-} from '@/types/literature'
+import type { FavoriteFolder, Id, Literature } from '@/types/literature'
 import '@/styles/literature-ext.css'
 
 const route = useRoute()
@@ -50,14 +44,17 @@ const literatureId = computed<Id>(() => {
 })
 
 const literature = ref<Literature | null>(null)
-const detail = ref<LiteratureDetail | null>(null)
 const favorited = ref(false)
 const loadFailed = ref(false)
-
 const loading = ref(false)
-const favoriteLoading = ref(false)
 
-// 引用与下载：三种格式由后端即时生成，当前选中格式决定导出内容
+/** 收藏夹：收藏时可选择归属，未选择则由后端放入默认收藏夹 */
+const favoriteLoading = ref(false)
+const folders = ref<FavoriteFolder[]>([])
+const selectedFolderId = ref<Id | undefined>(undefined)
+const folderPickerVisible = ref(false)
+
+// 引用：三种格式由后端即时生成，当前选中格式决定导出内容
 const citationItems = ref<CitationStyleItem[]>([])
 const citationRecords = ref<CitationRecord[]>([])
 const citationTotal = ref(0)
@@ -67,9 +64,9 @@ const citationListLoading = ref(false)
 const citationSaving = ref(false)
 const citationExporting = ref(false)
 const citationRemovingId = ref<Id | null>(null)
-const downloadLoading = ref(false)
-const downloadCount = ref<number | null>(null)
 const citationFailed = ref(false)
+
+const downloadLoading = ref(false)
 
 const keywordTokens = computed(() =>
   (literature.value?.keywords ?? '')
@@ -78,23 +75,7 @@ const keywordTokens = computed(() =>
     .filter(Boolean),
 )
 
-const summaryText = computed(
-  () => literature.value?.aiSummary || '暂无 AI 摘要',
-)
-
-const summaryStatus = computed(() =>
-  literature.value?.aiSummary ? '已生成' : '待生成',
-)
-
-const parseStatus = computed(() =>
-  literature.value?.fileId ? '原文已绑定' : '原文未绑定',
-)
-
-/** 未绑定原文时下载按钮置灰，避免用户点了才收到 14107 报错 */
-const hasOriginalFile = computed(() => Boolean(literature.value?.fileId))
-const downloadDisabledReason = computed(() =>
-  hasOriginalFile.value ? '' : '该文献未绑定原文文件，可联系上传者补充附件',
-)
+const summaryText = computed(() => literature.value?.aiSummary || '暂无 AI 摘要')
 
 const abstractParagraphs = computed(() =>
   (literature.value?.abstractText ?? '')
@@ -103,13 +84,11 @@ const abstractParagraphs = computed(() =>
     .filter(Boolean),
 )
 
-const fileSizeText = computed(() => {
-  const size = literature.value?.fileSize
-  if (typeof size !== 'number' || size <= 0) return '未记录'
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / 1024 / 1024).toFixed(2)} MB`
-})
+/** 未绑定原文时下载按钮置灰，避免用户点了才收到 14107 报错 */
+const hasOriginalFile = computed(() => Boolean(literature.value?.fileId))
+const downloadDisabledReason = computed(() =>
+  hasOriginalFile.value ? '' : '该文献未绑定原文文件，可联系管理员补充附件',
+)
 
 const activeCitation = computed(
   () =>
@@ -126,57 +105,6 @@ const collectedCitationStyles = computed(() => {
   return new Set<CitationStyle>(styles)
 })
 
-const collectedCitationCount = computed(() => citationRecords.value.length)
-
-const downloadCountText = computed(() => {
-  if (downloadCount.value !== null) return downloadCount.value
-  return literature.value?.downloadCount ?? 0
-})
-
-/** 阅读进度条宽度（0~100），未开始阅读时留 0 */
-const readingProgress = computed(() => {
-  const value = detail.value?.readingHistory?.progress ?? 0
-  return Math.min(100, Math.max(0, Math.round(value)))
-})
-
-const factRows = computed(() => [  {
-    label: '学科分类',
-    value: displayCategoryName(literature.value?.categoryName ?? null),
-  },
-  { label: '语言', value: literature.value?.language || '未填写' },
-  {
-    label: '文献类别',
-    value: displayLiteratureType(literature.value?.literatureType),
-  },
-  {
-    label: '出版日期',
-    value: literature.value?.publishDate || '未填写',
-  },
-  {
-    label: '在线公开',
-    value: literature.value?.onlinePublishDate || '未填写',
-  },
-  { label: '文件类型', value: literature.value?.fileType || '未绑定' },
-  { label: '全文大小', value: fileSizeText.value },
-  {
-    label: '上传时间',
-    value:
-      literature.value?.createdAt?.slice(0, 19).replace('T', ' ') || '未记录',
-  },
-  {
-    label: '更新时间',
-    value:
-      literature.value?.updatedAt?.slice(0, 19).replace('T', ' ') || '未记录',
-  },
-  { label: '文献编号', value: literature.value?.id ?? literatureId.value },
-])
-
-/** 业务错误码 14107：该文献未绑定原文文件 */
-function isMissingFileError(error: unknown) {
-  const target = error as { code?: number; message?: string } | null
-  return target?.code === 14107 || (target?.message ?? '').includes('14107')
-}
-
 async function loadDetail() {
   const id = literatureId.value
   if (!id) {
@@ -189,7 +117,6 @@ async function loadDetail() {
   loadFailed.value = false
   try {
     const response = await getLiteratureView(id)
-    detail.value = response
     literature.value = response.literature
     favorited.value = response.favorited
   } catch (error) {
@@ -198,7 +125,6 @@ async function loadDetail() {
       id,
       error,
     )
-    detail.value = null
     literature.value = null
     loadFailed.value = true
   } finally {
@@ -206,34 +132,83 @@ async function loadDetail() {
   }
 }
 
-async function toggleFavorite() {
+/** 收藏夹列表只影响收藏入口，失败时降级为「不选夹」 */
+async function loadFolders() {
+  try {
+    folders.value = await listFavoriteFolders()
+  } catch (error) {
+    console.error(
+      'favorite folder list failed, scenario=favorite-folder-list',
+      error,
+    )
+    folders.value = []
+  }
+}
+
+async function confirmFavorite() {
   const id = literature.value?.id ?? literatureId.value
   if (!id || favoriteLoading.value) return
 
-  // 先乐观更新，失败时恢复原状态，避免请求中重复点击
-  const previous = favorited.value
-  favorited.value = !previous
   favoriteLoading.value = true
   try {
-    if (previous) {
-      await unfavoriteLiterature(id)
-      ElMessage.success('已取消收藏')
-    } else {
-      await favoriteLiterature(id)
-      ElMessage.success('已收藏该文献')
-    }
+    await favoriteLiterature(id, selectedFolderId.value ?? null)
+    favorited.value = true
+    folderPickerVisible.value = false
+    const folderName = folders.value.find(
+      (item) => item.id === selectedFolderId.value,
+    )?.name
+    ElMessage.success(folderName ? `已收藏到「${folderName}」` : '已收藏该文献')
+    await loadFolders()
   } catch (error) {
-    favorited.value = previous
     console.error(
-      'favorite toggle failed, scenario=literature-favorite-toggle, literatureId=%s, favorited=%s',
+      'favorite create failed, scenario=literature-favorite-create, literatureId=%s, folderId=%s',
       id,
-      previous,
+      selectedFolderId.value,
       error,
     )
   } finally {
     favoriteLoading.value = false
   }
 }
+
+async function cancelFavorite() {
+  const id = literature.value?.id ?? literatureId.value
+  if (!id || favoriteLoading.value) return
+
+  favoriteLoading.value = true
+  try {
+    await unfavoriteLiterature(id)
+    favorited.value = false
+    ElMessage.success('已取消收藏')
+  } catch (error) {
+    console.error(
+      'favorite delete failed, scenario=literature-favorite-delete, literatureId=%s',
+      id,
+      error,
+    )
+  } finally {
+    favoriteLoading.value = false
+  }
+}
+
+function openReader() {
+  router.push(`/student/literature/${literatureId.value}/read`)
+}
+
+function goSearch() {
+  router.push('/student/search')
+}
+
+function goShelf() {
+  router.push('/student/shelf')
+}
+
+onMounted(async () => {
+  await Promise.all([loadDetail(), loadFolders()])
+  if (!loadFailed.value) {
+    await Promise.all([loadCitations(), loadCitationRecords()])
+  }
+})
 
 /** 加载三种引用格式，默认选中第一种 */
 async function loadCitations() {
@@ -409,7 +384,7 @@ async function exportReferences() {
   }
 }
 
-/** 换取预签名地址后打开原文，并回显最新下载次数 */
+/** 换取预签名地址后打开原文 */
 async function downloadOriginal() {
   const id = literature.value?.id ?? literatureId.value
   if (!id) return
@@ -418,13 +393,6 @@ async function downloadOriginal() {
   try {
     const ticket = await getLiteratureDownload(id)
     await openLiteratureFile(ticket)
-    downloadCount.value = ticket.downloadCount
-    if (literature.value) {
-      literature.value = {
-        ...literature.value,
-        downloadCount: ticket.downloadCount,
-      }
-    }
     ElMessage.success(`已开始下载：${ticket.fileName}`)
   } catch (error) {
     console.error(
@@ -432,46 +400,19 @@ async function downloadOriginal() {
       id,
       error,
     )
-    if (isMissingFileError(error)) {
-      ElMessage.warning('该文献未绑定原文文件，可联系上传者补充附件')
+    if ((error as { code?: number } | null)?.code === 14107) {
+      ElMessage.warning('该文献未绑定原文文件，可联系管理员补充附件')
     }
   } finally {
     downloadLoading.value = false
   }
 }
-
-function openReader() {
-  router.push(`/student/literature/${literatureId.value}/read`)
-}
-
-function goLibrary() {
-  router.push('/student/library')
-}
-
-function goShelf() {
-  router.push('/student/shelf')
-}
-
-onMounted(async () => {
-  await loadDetail()
-  if (!loadFailed.value) {
-    await Promise.all([loadCitations(), loadCitationRecords()])
-  }
-})
 </script>
 
 <template>
   <section class="library-page">
-
-
     <section v-if="loading" class="glass-panel" aria-label="文献详情加载中">
-      <el-skeleton :rows="1" animated />
-      <div class="detail-facts">
-        <div v-for="index in 4" :key="index">
-          <el-skeleton :rows="1" animated />
-        </div>
-      </div>
-      <el-skeleton :rows="6" animated />
+      <el-skeleton :rows="8" animated />
     </section>
 
     <section
@@ -479,19 +420,20 @@ onMounted(async () => {
       class="glass-panel"
       aria-label="文献详情异常"
     >
-      <el-empty description="文献加载失败或不存在，请返回文献库重新选择">
+      <el-empty description="文献加载失败或不存在，请返回检索页重新选择">
         <div class="detail-actions">
           <el-button :icon="Refresh" type="primary" @click="loadDetail"
             >重新加载</el-button
           >
-          <el-button :icon="ArrowLeft" plain @click="goLibrary"
-            >返回文献库</el-button
+          <el-button :icon="ArrowLeft" plain @click="goSearch"
+            >返回检索</el-button
           >
         </div>
       </el-empty>
     </section>
 
     <template v-else>
+      <!-- 题录头部：题名 / 作者 / 来源 / 类别 / 时间 / 学科 -->
       <section class="glass-panel" aria-label="文献信息">
         <div class="reader-titlebar">
           <div>
@@ -506,47 +448,28 @@ onMounted(async () => {
         </div>
 
         <div class="reader-meta">
-          <span>{{ literature.author || '未知作者' }}</span>
-          <span>{{ literature.source || '未填写来源' }}</span>
-          <span>{{ literature.publishDate || '出版日期未知' }}</span>
-          <span>{{ literature.language || '语言未填写' }}</span>
+          <span>{{ literature.author || '作者未标注' }}</span>
+          <span>{{ literature.source || '来源未标注' }}</span>
+          <span>{{ literature.publishDate || '发表时间未标注' }}</span>
+          <span>在线公开 {{ literature.onlinePublishDate || '未标注' }}</span>
         </div>
 
         <div class="reader-meta">
           <el-tag size="small" effect="plain">{{
             displayLiteratureType(literature.literatureType)
           }}</el-tag>
-          <el-tag size="small" effect="plain" type="info">{{
-            summaryStatus
-          }}</el-tag>
+          <span>被引 {{ literature.citationCount ?? 0 }}</span>
+          <span>下载 {{ literature.downloadCount ?? 0 }}</span>
+          <span>阅读 {{ literature.readCount ?? 0 }}</span>
         </div>
 
         <section class="keyword-ribbon" v-if="keywordTokens.length">
           <span v-for="token in keywordTokens" :key="token">{{ token }}</span>
         </section>
 
-        <div class="hero-stats">
-          <span>
-            <strong>{{ literature.readCount ?? 0 }}</strong>
-            阅读次数
-          </span>
-          <span>
-            <strong>{{ downloadCountText }}</strong>
-            下载次数
-          </span>
-          <span>
-            <strong>{{ detail?.readingHistory?.progress ?? 0 }}%</strong>
-            阅读进度
-          </span>
-          <span>
-            <strong>{{ collectedCitationCount }}</strong>
-            已存引用
-          </span>
-        </div>
-
         <div class="detail-actions">
           <el-button :icon="Document" type="primary" @click="openReader"
-            >在线阅读</el-button
+            >HTML 阅读</el-button
           >
           <el-tooltip
             :content="downloadDisabledReason"
@@ -562,42 +485,102 @@ onMounted(async () => {
                 :disabled="!hasOriginalFile"
                 @click="downloadOriginal"
               >
-                下载原文
+                PDF 下载
               </el-button>
             </span>
           </el-tooltip>
+
+          <el-popover
+            v-if="!favorited"
+            v-model:visible="folderPickerVisible"
+            placement="bottom-start"
+            :width="260"
+            trigger="click"
+          >
+            <template #reference>
+              <el-button :icon="Star" plain :loading="favoriteLoading">
+                收藏
+              </el-button>
+            </template>
+            <div class="favorite-picker">
+              <p class="favorite-picker__label">收藏到</p>
+              <el-select
+                v-model="selectedFolderId"
+                class="favorite-picker__select"
+                placeholder="默认收藏夹"
+                clearable
+              >
+                <el-option
+                  v-for="folder in folders"
+                  :key="folder.id"
+                  :label="folder.name"
+                  :value="folder.id"
+                />
+              </el-select>
+              <div class="favorite-picker__actions">
+                <el-button text @click="folderPickerVisible = false"
+                  >取消</el-button
+                >
+                <el-button
+                  type="primary"
+                  :loading="favoriteLoading"
+                  @click="confirmFavorite"
+                >
+                  确定收藏
+                </el-button>
+              </div>
+            </div>
+          </el-popover>
           <el-button
-            :icon="favorited ? StarFilled : Star"
+            v-else
+            :icon="StarFilled"
             plain
             :loading="favoriteLoading"
-            :disabled="favoriteLoading"
-            @click="toggleFavorite"
+            @click="cancelFavorite"
           >
-            {{ favorited ? '取消收藏' : '收藏' }}
+            取消收藏
           </el-button>
-          <el-button :icon="ArrowLeft" plain @click="goLibrary"
-            >返回文献库</el-button
-          >
+
+          <el-button :icon="Reading" plain @click="goShelf">我的书房</el-button>
         </div>
       </section>
 
-      <section class="detail-facts" aria-label="题录信息">
-        <div v-for="item in factRows" :key="item.label">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </div>
-      </section>
+      <!-- 摘要：AI 摘要 + 摘要原文 -->
+      <div class="paper-stack">
+        <section class="glass-panel" aria-label="AI 摘要">
+          <div class="panel-heading">
+            <div>
+              <h3>AI 摘要</h3>
+            </div>
+          </div>
+          <p>{{ summaryText }}</p>
+        </section>
 
-      <section class="glass-panel" aria-label="引用与下载">
+        <section class="glass-panel" aria-label="摘要原文">
+          <div class="panel-heading">
+            <div>
+              <h3>摘要</h3>
+            </div>
+          </div>
+          <template v-if="abstractParagraphs.length">
+            <p v-for="(paragraph, index) in abstractParagraphs" :key="index">
+              {{ paragraph }}
+            </p>
+          </template>
+          <el-empty v-else description="该文献暂未填写摘要" />
+        </section>
+      </div>
+
+      <!-- 引用参考文献 -->
+      <section class="glass-panel" aria-label="引用参考文献">
         <div class="panel-heading">
           <div>
-
-            <h3>引用与下载</h3>
+            <h3>引用参考文献</h3>
           </div>
           <div class="detail-actions">
             <el-tag effect="plain">{{ citationStyleCount }} 种格式</el-tag>
             <el-tag effect="plain" type="success"
-              >已收藏 {{ collectedCitationCount }} 条</el-tag
+              >已收藏 {{ citationTotal }} 条</el-tag
             >
             <el-button
               :icon="Refresh"
@@ -607,12 +590,11 @@ onMounted(async () => {
             >
               刷新引用
             </el-button>
-            <el-button :icon="Reading" plain @click="goShelf">去书房</el-button>
           </div>
         </div>
 
         <section v-if="citationLoading" aria-label="引用格式加载中">
-          <el-skeleton :rows="5" animated />
+          <el-skeleton :rows="4" animated />
         </section>
 
         <el-empty
@@ -638,9 +620,6 @@ onMounted(async () => {
                 >
                   已收藏
                 </el-tag>
-                <el-tag v-else size="small" effect="plain">{{
-                  item.style
-                }}</el-tag>
               </header>
               <p class="citation-card__text">
                 {{ item.text || '该格式暂未生成引用文本' }}
@@ -670,15 +649,6 @@ onMounted(async () => {
                   }}
                 </el-button>
               </div>
-              <el-button
-                :icon="Download"
-                plain
-                class="wide-action"
-                :loading="citationExporting"
-                @click="exportReferences"
-              >
-                导出该格式参考文献
-              </el-button>
             </article>
           </div>
 
@@ -697,15 +667,9 @@ onMounted(async () => {
           <section class="citation-records" aria-label="已收藏引用">
             <div class="panel-heading">
               <div>
-
                 <h3>本篇已收藏引用</h3>
               </div>
-              <div class="detail-actions">
-                <el-tag effect="plain">{{ citationTotal }} 条</el-tag>
-                <el-button :icon="Reading" plain @click="goShelf"
-                  >去书房</el-button
-                >
-              </div>
+              <el-tag effect="plain">{{ citationTotal }} 条</el-tag>
             </div>
 
             <div v-loading="citationListLoading">
@@ -747,130 +711,6 @@ onMounted(async () => {
           </section>
         </template>
       </section>
-
-      <div class="paper-stack">
-        <section class="glass-panel" aria-label="AI 摘要">
-          <div class="panel-heading">
-            <div>
-
-              <h3>AI 摘要</h3>
-            </div>
-            <div class="detail-actions">
-              <el-tag effect="plain">状态：{{ summaryStatus }}</el-tag>
-            </div>
-          </div>
-          <p>{{ summaryText }}</p>
-        </section>
-
-        <section class="glass-panel" aria-label="解析摘要">
-          <div class="panel-heading">
-            <div>
-
-              <h3>摘要原文</h3>
-            </div>
-            <span>{{ abstractParagraphs.length }} 段</span>
-          </div>
-          <template v-if="abstractParagraphs.length">
-            <p v-for="(paragraph, index) in abstractParagraphs" :key="index">
-              {{ paragraph }}
-            </p>
-          </template>
-          <el-empty v-else description="暂无摘要，可在文献库编辑补充" />
-        </section>
-
-        <section class="glass-panel" aria-label="阅读与文献状态">
-          <div class="panel-heading">
-            <div>
-
-              <h3>阅读与文献状态</h3>
-            </div>
-          </div>
-          <section class="parse-status-grid">
-            <div>
-              <span>原文状态</span>
-              <strong>{{ parseStatus }}</strong>
-            </div>
-            <div>
-              <span>上次阅读位置</span>
-              <strong>{{ detail?.readingHistory?.lastPage ?? '—' }}</strong>
-            </div>
-            <div>
-              <span>文献类别</span>
-              <strong>{{ displayLiteratureType(literature.literatureType) }}</strong>
-            </div>
-            <div>
-              <span>在线公开</span>
-              <strong>{{ literature.onlinePublishDate || '—' }}</strong>
-            </div>
-          </section>
-          <div class="progress-line">
-            <span :style="{ width: `${readingProgress}%` }" />
-          </div>
-          <section class="reading-grid">
-            <div>
-              <h3>文件信息</h3>
-              <div class="file-info">
-                <span>类型：{{ literature.fileType || '未绑定原文' }}</span>
-                <span>大小：{{ fileSizeText }}</span>
-                <span>文件 ID：{{ literature.fileId ?? '—' }}</span>
-              </div>
-              <a
-                v-if="literature.fileUrl"
-                :href="literature.fileUrl"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <el-button :icon="Document" plain>打开原文链接</el-button>
-              </a>
-              <span v-else>暂无可用文件链接</span>
-            </div>
-            <div>
-              <h3>阅读记录</h3>
-              <ul>
-                <li>
-                  最后页码：{{ detail?.readingHistory?.lastPage ?? '暂无记录' }}
-                </li>
-                <li>阅读进度：{{ detail?.readingHistory?.progress ?? 0 }}%</li>
-                <li>
-                  阅读时长：{{ detail?.readingHistory?.readDuration ?? 0 }} 秒
-                </li>
-                <li>最近笔记：{{ detail?.recentNotes?.length ?? 0 }} 条</li>
-              </ul>
-            </div>
-          </section>
-        </section>
-
-        <section class="glass-panel" aria-label="最近笔记">
-          <div class="panel-heading">
-            <div>
-
-              <h3>最近阅读笔记</h3>
-            </div>
-            <el-button :icon="Reading" plain @click="openReader"
-              >去阅读页管理</el-button
-            >
-          </div>
-          <div class="note-list" v-if="detail?.recentNotes?.length">
-            <article
-              v-for="note in detail.recentNotes"
-              :key="note.id"
-              class="note-card"
-            >
-              <div>
-                <el-tag v-if="note.aiGenerated" size="small" type="success"
-                  >AI</el-tag
-                >
-                <h4>{{ note.title }}</h4>
-                <p>{{ note.content }}</p>
-              </div>
-              <div class="note-actions">
-                <el-tag size="small" effect="plain">#{{ note.id }}</el-tag>
-              </div>
-            </article>
-          </div>
-          <el-empty v-else description="暂无笔记，可到在线阅读页创建批注" />
-        </section>
-      </div>
     </template>
   </section>
 </template>
@@ -879,5 +719,22 @@ onMounted(async () => {
 /* 禁用态按钮不派发鼠标事件，用一层 span 承接 tooltip 的 hover */
 .detail-action-wrap {
   display: inline-flex;
+}
+
+.favorite-picker__label {
+  margin: 0 0 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.favorite-picker__select {
+  width: 100%;
+}
+
+.favorite-picker__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }
 </style>

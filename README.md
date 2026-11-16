@@ -17,7 +17,7 @@ ScholarMind/
 │  ├─ src/main/java/com/maou/apptemplateapi/
 │  │  ├─ common/                   公共配置（安全、异常、Jackson、存储、AI、RAG）
 │  │  └─ module/                   业务模块：user / literature / citation / file / rag / ai / admin
-│  ├─ src/main/resources/sql/      数据库脚本（00~12，按序执行）
+│  ├─ src/main/resources/sql/      数据库脚本（00~13，按序执行）
 │  └─ src/test/java/               单元测试（AI 调用重试、引用格式化、上下文装配）
 ├─ ScholarMindWeb/                 前端（Vue 3 + Vite，开发端口 5173）
 │  └─ src/{api,types,views,layouts,styles,router,stores,utils}
@@ -58,6 +58,7 @@ ScholarMind/
 10_seed_retrieval_demo.sql         三模式检索演示数据
 11_seed_open_access_papers.sql     开放论文题录与摘要译文（无伪造全文）
 12_admin_literature_upload.sql     管理员上传改造：文献类别 / 出版日期 / 在线公开日期 + 学科中文化
+13_literature_metrics_and_folders.sql  被引次数 / 参考文献 / 中图法八大门类 / 收藏夹
 ```
 
 命令行执行示例（**注意指定 utf8mb4**，否则中文演示数据会报 `Incorrect string value`）：
@@ -70,9 +71,9 @@ Get-ChildItem .\ScholarMindApi\src\main\resources\sql\*.sql | Sort-Object Name |
 }
 ```
 
-`05` 与 `07`、`08` 均为幂等脚本（`CREATE TABLE IF NOT EXISTS` / `ON DUPLICATE KEY UPDATE`），可重复执行。
+`05`、`07`、`08`、`09`、`12`、`13` 均为幂等脚本（`CREATE TABLE IF NOT EXISTS` / `ON DUPLICATE KEY UPDATE` / `information_schema` 判存在后 `ALTER`），可重复执行。
 
-已有数据库升级到「管理员上传」模型时，仅执行 `12_admin_literature_upload.sql`（幂等）；全新初始化按 `00~12` 文件顺序执行。随后在管理端重建文献向量。该脚本只导入三篇 arXiv 论文的题录、摘要和明确标注的中文摘要译文，不写入假原文附件；正式全文需另行核验许可并上传。
+已有数据库升级时按需执行增量脚本：升级到「管理员上传」模型执行 `12_admin_literature_upload.sql`，升级到「被引/参考文献/八大门类/收藏夹」执行 `13_literature_metrics_and_folders.sql`（均幂等）；全新初始化按 `00~13` 文件顺序执行。随后在管理端重建文献向量。`11` 号脚本只导入三篇 arXiv 论文的题录、摘要和明确标注的中文摘要译文，不写入假原文附件；正式全文需另行核验许可并上传。
 
 ## 四、启动
 
@@ -167,38 +168,38 @@ npm run build           # 类型门禁 + vite build
 
 | 路由 | 页面 | 主要能力 |
 | --- | --- | --- |
-| `/student/library` | 文献检索与阅读 | 自然语言 / 语义 / 混合三种检索模式、按学科与文献类别筛选、收藏、右侧题录信息面板（学生端只读） |
-| `/student/literature/:id` | 文献详情 | 题录、摘要与 AI 摘要、索引状态（只读）、收藏、**引用格式（GB/T 7714 / APA / MLA）与下载**（未绑定原文时按钮置灰） |
-| `/student/literature/:id/read` | 在线阅读 | 真实分块正文、目录导航、阅读进度与时长（自动保存）、笔记管理、下载与笔记导出；上传/换原文时索引自动重建，无需手动操作 |
+| `/student/home` | 首页 | 中央搜索框（可选主题 / 关键词 / 全文 / 作者 / 摘要 / 参考文献 / 文献来源七个检索维度）、按学科分类浏览、RAG 智能检索入口，检索后跳转结果页 |
+| `/student/search` | 检索结果 | 左侧学科（中图法八大门类）与年度（2017~2026）筛选、顶部文献类别（学术期刊 / 学位论文（硕士）/ 学位论文（博士）/ 报纸）筛选；每条展示题名、作者、来源、发表时间、被引、下载与阅读数（学生端只读） |
+| `/student/literature/:id` | 文献详情 | 题名、作者、来源、摘要与 AI 摘要、关键词、学科、在线公开时间；HTML 阅读、PDF 下载（未绑定原文时按钮置灰）、引用格式（GB/T 7714 / APA / MLA）与导出、收藏（可选择收藏夹） |
+| `/student/literature/:id/read` | 在线阅读 | 左侧目录可点击跳转、中间真实分块正文、右侧智能问答与阅读笔记；阅读进度与时长自动保存；上传/换原文时索引自动重建，无需手动操作 |
 | `/student/literature/:id/qa` | 智能问答 | 基于原文片段的问答与引用、历史问答 |
-| `/student/shelf` | 我的书房 | 收藏 / 阅读历史 / 笔记三类资产的汇总与导出 |
+| `/student/shelf` | 我的书房 | 收藏（支持自定义收藏夹：新建 / 重命名 / 删除 / 移动归属）/ 阅读历史 / 笔记三类资产的汇总与导出 |
 | `/admin/dashboard` | 管理中心 | 统计 KPI、**上传文献（含可选原文）**、文献库管理与删除、RAG 知识库维护 |
 | `/admin/users`、`/admin/categories` | 用户/分类管理 | 账号启停、分类增删改 |
 | `/admin/ai-logs` | AI 调用日志 | 任务分页与筛选、请求/响应预览、健康度概要 |
 | `/admin/operations` | 运营分析 | 热门关键词、平台指标、AI 运营分析报告（含兜底标识） |
 | `/analytics/overview` | 数据总览 | 趋势与维度分布大屏 |
 
-> 教师端（`/teacher/review`）已按改版需求移除；用户端即原学生端，路由前缀保持 `/student` 以避免大范围改动。
+> 教师端（`/teacher/review`）已按改版需求移除；用户端即原学生端，路由前缀保持 `/student` 以避免大范围改动。根路径 `/` 重定向到 `/student/home`；旧地址 `/student/library` 重定向到 `/student/search`（原文献库即检索页）。
 
 ### 核心接口一览（前缀 `/api/v1`）
 
-- 文献：`GET /literatures`、`GET /literatures/{id}/view`、`GET /literatures/{id}/chunks`、`GET /literatures/{id}/citations`、`GET /literatures/{id}/download`
-- 阅读：`GET|PUT /reading-history`、`POST|DELETE /favorites`、`GET|POST|PUT|DELETE /notes`、`GET /notes/export`
+- 文献：`GET /literatures`（支持 `keyword` + `searchField`、`categoryId`、`literatureType`、`yearFrom|yearTo`）、`GET /literatures/{id}/view`、`GET /literatures/{id}/chunks`、`GET /literatures/{id}/citations`、`GET /literatures/{id}/download`
+- 阅读：`GET|PUT /reading-history`、`GET|POST /favorites`（`POST /favorites/{id}?folderId=`）、`PUT /favorites/{id}/folder`、`GET|POST /favorites/folders`、`PUT|DELETE /favorites/folders/{id}`、`GET|POST|PUT|DELETE /notes`、`GET /notes/export`
 - 引用：`GET|POST /citations`、`DELETE /citations/{id}`、`GET /citations/export`
 - 检索与 AI：`POST /search/semantic`、`POST /search/hybrid`（混合检索）、`POST /search/retrieval-compare`（稀疏/稠密/RRF 三路对比，用于算法验证与论文数据）、`POST /search/natural-language`、`POST /ai/literature/{id}/summary|question|index`、`POST /ai/literature/compare`
 - 管理：`GET /admin/statistics/dashboard|keywords`、`POST /admin/statistics/report`、`GET /admin/ai-tasks`、`GET /admin/ai-tasks/summary`、`GET|PUT /admin/users`、`DELETE /admin/literatures/{id}`（级联清理分块/收藏/历史/笔记/引用/问答、附件对象与向量）、`POST /admin/rag/literature-vectors/rebuild`（把已发布文献分块写入 Milvus 向量库）
 
 ## 七、演示路径建议
 
-1. 用户端检索「怎样把几个检索器给出的候选清单合成为一个更可靠的排序」→ 切换到「语义检索」与「混合检索」，对比同一问题下三种模式返回的文献与名次差异；
-2. 检索「BM25 k1 参数对倒排索引检索效果的影响」→ 术语型问题下稀疏召回占优，可与口语化问题对照演示；
-3. 进入文献详情，查看 AI 摘要（新文献的摘要在上传时自动生成）、切换三种引用格式并复制 / 收藏引用 / 导出参考文献；
-4. 以 `admin` 进入管理中心「上传文献」，填写 9 个题录字段并附上 PDF 原文 → 提交后索引**自动重建**、**AI 摘要自动生成**（无需点按钮，按钮显示「正在建索引并生成摘要…」十余秒），在线阅读页即可看到**从 PDF 抽取的真实正文分块**；
-5. 在线阅读时自动保存进度、记录笔记，导出本篇笔记；
-6. 智能问答提问并核对引用片段；
-7. 打开「我的书房」查看收藏、阅读历史与笔记汇总；
-8. 管理员在「文献库管理」中删除一篇文献（观察分块、收藏、附件与向量一并清理）；
-9. 查看 AI 调用日志与热门关键词、一键生成运营分析报告，打开数据总览大屏。
+1. 从首页中央搜索框输入「怎样把几个检索器给出的候选清单合成为一个更可靠的排序」，选择检索维度（默认主题，可切关键词 / 全文 / 作者 / 摘要 / 参考文献 / 文献来源）→ 进入结果页，再用左侧学科与年度、顶部文献类别筛选收窄；
+2. 检索「BM25 k1 参数对倒排索引检索效果的影响」→ 术语型问题下稀疏召回占优，可与口语化问题对照演示；也可在首页 RAG 面板切换「自然语言 / 混合」模式对比；
+3. 进入文献详情，查看 AI 摘要（新文献的摘要在上传时自动生成）、学科与在线公开时间，切换三种引用格式并复制 / 收藏引用 / 导出参考文献；
+4. 以 `admin` 进入管理中心「上传文献」，填写题录字段（含被引次数与参考文献）并附上 PDF 原文 → 提交后索引**自动重建**、**AI 摘要自动生成**（无需点按钮，按钮显示「正在建索引并生成摘要…」十余秒），在线阅读页即可看到**从 PDF 抽取的真实正文分块**；
+5. 在线阅读时用左侧目录跳转章节、在右侧提问并核对引用片段、随手记笔记，进度与时长自动保存；
+6. 回到「我的书房」新建收藏夹并调整文献归属，查看收藏、阅读历史与笔记汇总；
+7. 管理员在「文献库管理」中删除一篇文献（观察分块、收藏、附件与向量一并清理）；
+8. 查看 AI 调用日志与热门关键词、一键生成运营分析报告，打开数据总览大屏。
 
 ## 八、已知限制
 
@@ -215,7 +216,9 @@ npm run build           # 类型门禁 + vite build
    索引或摘要失败只降级（`parse_status` / `summary_status` 置 `FAILED`），不影响文献本身入库。
 4. **文件模块**：已清理模板期遗留的「工单绑定」接口（无调用方的死代码），现仅保留通用上传 `POST /files/upload`；
    业务绑定统一通过相应业务表的外键维护（文献附件为 `literature.file_id`），下载走预签名地址。
-5. **前端开发端口**：默认 5173，若被占用请修改 `ScholarMindWeb/vite.config.ts`。
+5. **检索维度**：「全文」与「参考文献」维度基于 `literature` 表的题录字段（`abstract_text` / `references_text` 等）做 LIKE 匹配，
+   原文正文分块在 `literature_chunk` 表、无法跨表 LIKE 命中；被引次数 `citation_count` 为管理员手填的演示数据，未对接外部引文库。
+6. **前端开发端口**：默认 5173，若被占用请修改 `ScholarMindWeb/vite.config.ts`。
 
 ## 九、设计文档与图表
 

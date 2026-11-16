@@ -12,9 +12,9 @@ public record LiteratureResponse(
         String title,
         String author,
         String source,
-        /** 文献类别：期刊论文/会议论文/学位论文/图书/预印本/其他 */
+        /** 文献类别：学术期刊/学位论文（硕士）/学位论文（博士）/报纸 */
         String literatureType,
-        /** 学科（literature_category 字典） */
+        /** 学科（literature_category 字典，中图法一级门类） */
         Long categoryId,
         String categoryName,
         LocalDate publishDate,
@@ -27,9 +27,13 @@ public record LiteratureResponse(
         Long fileSize,
         String abstractText,
         String aiSummary,
+        /** 参考文献列表原文；检索命中时可展示，列表页不展示 */
+        String referencesText,
         String keywords,
         Integer readCount,
         Integer downloadCount,
+        /** 被引次数（演示数据，管理员手填） */
+        Integer citationCount,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

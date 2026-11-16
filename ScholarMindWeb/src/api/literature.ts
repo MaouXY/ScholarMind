@@ -1,6 +1,8 @@
 import type {
   FileAsset,
   Favorite,
+  FavoriteFolder,
+  FavoriteFolderPayload,
   Id,
   Literature,
   LiteratureCategory,
@@ -184,16 +186,41 @@ export function deleteReadingNote(id: Id) {
   return request.delete<never, void>(`/notes/${id}`)
 }
 
-export function favoriteLiterature(literatureId: Id) {
-  return request.post<never, Favorite>(`/favorites/${literatureId}`)
+export function favoriteLiterature(literatureId: Id, folderId?: Id | null) {
+  return request.post<never, Favorite>(`/favorites/${literatureId}`, undefined, {
+    params: { folderId: folderId ?? undefined },
+  })
 }
 
 export function unfavoriteLiterature(literatureId: Id) {
   return request.delete<never, void>(`/favorites/${literatureId}`)
 }
 
-export function listFavorites(params: { page: number; size: number }) {
+export function listFavorites(params: { page: number; size: number; folderId?: Id | null }) {
   return request.get<never, PageResult<Favorite>>('/favorites', { params })
+}
+
+/** 把已收藏的文献移动到指定收藏夹；folderId 传 0 表示移入未分类 */
+export function moveFavoriteFolder(literatureId: Id, folderId: Id | 0) {
+  return request.put<never, void>(`/favorites/${literatureId}/folder`, undefined, {
+    params: { folderId },
+  })
+}
+
+export function listFavoriteFolders() {
+  return request.get<never, FavoriteFolder[]>('/favorites/folders')
+}
+
+export function createFavoriteFolder(payload: FavoriteFolderPayload) {
+  return request.post<never, FavoriteFolder>('/favorites/folders', payload)
+}
+
+export function updateFavoriteFolder(id: Id, payload: FavoriteFolderPayload) {
+  return request.put<never, FavoriteFolder>(`/favorites/folders/${id}`, payload)
+}
+
+export function deleteFavoriteFolder(id: Id) {
+  return request.delete<never, void>(`/favorites/folders/${id}`)
 }
 
 export function listCategories() {

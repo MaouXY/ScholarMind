@@ -26,7 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (role.value === 'ADMIN') {
       return '/admin/dashboard'
     }
-    return '/student/library'
+    return '/student/home'
   })
 
   async function login(payload: LoginForm) {

@@ -215,7 +215,7 @@ public class AdminStatisticsService {
         return result;
     }
 
-    /** 文献类别分布：期刊论文 / 会议论文 / 学位论文 / 图书 / 预印本 / 其他。 */
+    /** 文献类别分布：学术期刊 / 学位论文（硕士）/ 学位论文（博士）/ 报纸。 */
     private List<AdminDimensionStatResponse> literatureTypeStats() {
         return literatureMapper.selectList(new LambdaQueryWrapper<Literature>().eq(Literature::getDeleted, 0))
                 .stream()

@@ -1,47 +1,47 @@
 <script setup lang="ts">
-import {
-  computed,
-  onBeforeUnmount,
-  onMounted,
-  reactive,
-  ref,
-  watch,
-} from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
   ChatLineRound,
-  Collection,
-  Document,
+  Delete,
+  EditPen,
   Download,
-  List,
-  Notebook,
+  Plus,
   Refresh,
 } from '@element-plus/icons-vue'
 
 import {
+  askLiteratureQuestion,
   createReadingNote,
   deleteReadingNote,
   getLiteratureView,
   getReadingHistory,
   listLiteratureChunks,
+  listLiteratureQaRecords,
   listReadingNotes,
   rebuildLiteratureIndex,
   saveReadingHistory,
   updateReadingNote,
 } from '@/api/literature'
 import { downloadReadingNotes } from '@/utils/download'
-import { displayCategoryName, displayLanguage, displayLiteratureType } from '@/utils/format'
+import {
+  displayCategoryName,
+  displayLanguage,
+  displayLiteratureType,
+} from '@/utils/format'
 import type {
   Id,
   Literature,
   LiteratureChunk,
+  LiteratureQuestionResult,
   ReadingHistory,
   ReadingNote,
   ReadingNotePayload,
 } from '@/types/literature'
 import '@/styles/literature-ext.css'
+import '@/styles/reader.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -55,7 +55,6 @@ const literature = ref<Literature | null>(null)
 const chunks = ref<LiteratureChunk[]>([])
 const history = ref<ReadingHistory | null>(null)
 const notes = ref<ReadingNote[]>([])
-const selectedNote = ref<ReadingNote | null>(null)
 
 const loading = ref(false)
 const chunkLoading = ref(false)
@@ -65,30 +64,36 @@ const indexBuilding = ref(false)
 const loadFailed = ref(false)
 const autoRebuildTried = ref(false)
 const autoRebuildFailed = ref(false)
-
-// 笔记导出：走 blob + Authorization 专用通道
 const noteExporting = ref(false)
 
 const noteDrawerVisible = ref(false)
 const noteMode = ref<'create' | 'edit'>('create')
+const selectedNote = ref<ReadingNote | null>(null)
 
-// 分块浏览：每屏 chunkPageSize 块，可「加载更多」或直接跳转目录
-const chunkPageSize = 4
-const chunkPage = ref(1)
+/** 右栏：智能问答 / 阅读笔记 */
+const sideTab = ref<'qa' | 'note'>('qa')
+
 const currentChunkIndex = ref(0)
-
-// 阅读计时：elapsedSeconds 每秒累加，自动保存进度时作为 readDuration 上报
 const elapsedSeconds = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
 
-// 自动保存：切换分块后 debounce 1.5 秒落库，离开页面时立即补存一次
 const PROGRESS_SAVE_DEBOUNCE = 1500
 let progressSaveTimer: ReturnType<typeof setTimeout> | null = null
 let scrollFrame: number | null = null
 
-const readingState = reactive({
-  lastPage: 1,
-})
+// 问答
+const qaForm = reactive({ question: '', limit: 4 })
+const qaRecords = ref<LiteratureQuestionResult[]>([])
+const activeAnswer = ref<LiteratureQuestionResult | null>(null)
+const asking = ref(false)
+const historyLoading = ref(false)
+const askError = ref('')
+
+const suggestedQuestions = [
+  '这篇文献的研究问题是什么？',
+  '作者用了什么方法？',
+  '结论与局限分别是什么？',
+]
 
 const noteForm = reactive<ReadingNotePayload>({
   literatureId: '',
@@ -111,31 +116,45 @@ const abstractBlocks = computed(() =>
     .filter(Boolean),
 )
 
-// 正文分块：按 chunkIndex 升序排列
 const orderedChunks = computed(() =>
   [...chunks.value].sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0)),
 )
 
 const totalChunks = computed(() => orderedChunks.value.length)
 
+const hasChunks = computed(() => totalChunks.value > 0)
+
+/** 正文分块渲染项：首段文字兼作目录标题 */
 const chunkItems = computed(() =>
   orderedChunks.value.map((chunk) => ({
     key: `${chunk.id}-${chunk.chunkIndex}`,
     id: chunk.id,
     chunkIndex: chunk.chunkIndex,
-    pageNo: chunk.pageNo ?? null,
-    tokenCount: chunk.tokenCount ?? null,
     paragraphs: splitParagraphs(chunk.content),
   })),
 )
 
-const visibleChunks = computed(() =>
-  chunkItems.value.slice(0, Math.max(1, chunkPage.value) * chunkPageSize),
-)
-
-const chunkTotalPages = computed(() =>
-  Math.max(1, Math.ceil(totalChunks.value / chunkPageSize)),
-)
+/** 左侧目录：章节锚点，含摘要 / 关键词 / 正文各段 */
+const tocItems = computed(() => {
+  const items: { id: string; label: string; hint: string }[] = []
+  if (literature.value?.aiSummary?.trim()) {
+    items.push({ id: 'section-ai-summary', label: 'AI 摘要', hint: '智能生成' })
+  }
+  if (abstractBlocks.value.length) {
+    items.push({ id: 'section-abstract', label: '摘要', hint: '原文摘录' })
+  }
+  if (keywordTokens.value.length) {
+    items.push({ id: 'section-keywords', label: '关键词', hint: '主题词' })
+  }
+  chunkItems.value.forEach((item) => {
+    items.push({
+      id: `chunk-${item.id}`,
+      label: `第 ${item.chunkIndex + 1} 段`,
+      hint: item.paragraphs[0]?.slice(0, 22) || '（空分块）',
+    })
+  })
+  return items
+})
 
 function splitParagraphs(content: string) {
   return (content ?? '')
@@ -144,7 +163,6 @@ function splitParagraphs(content: string) {
     .filter(Boolean)
 }
 
-// 当前所在分块序号（从 0 开始，取 chunkIndex 的实际值）
 const currentChunk = computed(() =>
   Math.min(
     Math.max(currentChunkIndex.value, 0),
@@ -152,7 +170,6 @@ const currentChunk = computed(() =>
   ),
 )
 
-// 进度按「当前分块在有序列表中的位置 / 总分块数」换算，不依赖 chunkIndex 是否连续
 const progressPercent = computed(() => {
   if (!totalChunks.value) return 0
   const position = orderedChunks.value.findIndex(
@@ -163,41 +180,12 @@ const progressPercent = computed(() => {
   )
 })
 
-const savedProgressText = computed(() => {
-  if (!history.value) return '暂无历史阅读记录'
-  return `上次阅读的位置：第 ${history.value.lastPage ?? 1} 段 · 进度 ${history.value.progress ?? 0}% · 已读 ${history.value.readDuration ?? 0} 秒`
-})
-
 const elapsedText = computed(() => {
   const minutes = Math.floor(elapsedSeconds.value / 60)
   const seconds = elapsedSeconds.value % 60
   return minutes > 0 ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`
 })
 
-const hasChunks = computed(() => totalChunks.value > 0)
-
-// 无分块时的兜底正文：摘要 + AI 摘要 + 关键词
-const fallbackBlocks = computed(() => {
-  const blocks: { title: string; content: string }[] = []
-  if (literature.value?.abstractText?.trim()) {
-    blocks.push({
-      title: '摘要',
-      content: literature.value.abstractText.trim(),
-    })
-  }
-  if (literature.value?.aiSummary?.trim()) {
-    blocks.push({
-      title: 'AI 摘要',
-      content: literature.value.aiSummary.trim(),
-    })
-  }
-  if (keywordTokens.value.length) {
-    blocks.push({ title: '关键词', content: keywordTokens.value.join(' / ') })
-  }
-  return blocks
-})
-
-// 无正文时的用户可读提示：区分「正在解析」「没有文件」「解析失败」三种情况
 const emptyChunkHint = computed(() => {
   if (indexBuilding.value) return '正在解析正文，请稍候…'
   if (autoRebuildFailed.value) return '该文献暂无可读正文，请联系管理员'
@@ -207,7 +195,12 @@ const emptyChunkHint = computed(() => {
   return '该文献暂无可读正文，请联系管理员'
 })
 
-function resetNoteForm() {
+const references = computed(
+  () => activeAnswer.value?.references ?? [],
+)
+
+function openNoteCreate() {
+  noteMode.value = 'create'
   Object.assign(noteForm, {
     literatureId: literatureId.value,
     title: '',
@@ -215,64 +208,29 @@ function resetNoteForm() {
     aiGenerated: 0,
   })
   selectedNote.value = null
+  noteDrawerVisible.value = true
 }
 
-function jumpToChunk(index: number) {
-  currentChunkIndex.value = index
-  chunkPage.value = Math.floor(index / chunkPageSize) + 1
-  readingState.lastPage = index + 1
-  const target = chunkItems.value.find((item) => item.chunkIndex === index)
-  window.setTimeout(() => {
-    if (!target) return
-    document
-      .getElementById(`chunk-${target.id}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, 60)
+function openNoteEdit(note: ReadingNote) {
+  noteMode.value = 'edit'
+  selectedNote.value = note
+  Object.assign(noteForm, {
+    literatureId: note.literatureId,
+    title: note.title,
+    content: note.content,
+    aiGenerated: note.aiGenerated ?? 0,
+  })
+  noteDrawerVisible.value = true
 }
 
-// 当前分块序号 + 1，即阅读进度接口 lastPage 的语义
-const chunkSpan = computed(() => currentChunk.value + 1)
-
-// 输入框回显值：有分块时等于「当前分块序号 + 1」，无分块时沿用后端保存值
-const lastPageModel = computed({
-  get: () => (hasChunks.value ? chunkSpan.value : readingState.lastPage),
-  set: (value: number | undefined | null) => {
-    const next = Number(value ?? 1)
-    if (!Number.isFinite(next)) return
-    if (hasChunks.value) {
-      jumpToChunk(next - 1)
-    } else {
-      readingState.lastPage = Math.max(1, next)
-    }
-  },
-})
-
-// 初始化完成后才允许自动保存，避免历史进度尚未回填就被覆盖
-let autoSaveReady = false
-
-watch(chunkSpan, (value) => {
-  readingState.lastPage = value
-  if (autoSaveReady) scheduleProgressSave()
-})
-
-function loadMoreChunks() {
-  chunkPage.value = Math.min(chunkPage.value + 1, chunkTotalPages.value)
-  if (currentChunkIndex.value < (chunkPage.value - 1) * chunkPageSize) {
-    currentChunkIndex.value = (chunkPage.value - 1) * chunkPageSize
+/** 目录点击：滚动到锚点并把该段设为当前阅读位置 */
+function jumpTo(targetId: string, chunkIndex?: number) {
+  if (typeof chunkIndex === 'number') {
+    currentChunkIndex.value = chunkIndex
   }
-}
-
-function loadAllChunks() {
-  chunkPage.value = chunkTotalPages.value
-}
-
-// 把历史 lastPage（= chunkIndex + 1）映射回对应分块并展开到该分块
-function restoreFromHistory(source?: ReadingHistory | null) {
-  const savedChunkIndex = (source?.lastPage ?? 1) - 1
-  const maxIndex = Math.max(totalChunks.value - 1, 0)
-  const target = Math.min(Math.max(savedChunkIndex, 0), maxIndex)
-  readingState.lastPage = source?.lastPage ?? 1
-  jumpToChunk(target)
+  document
+    .getElementById(targetId)
+    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 async function loadLiterature() {
@@ -325,53 +283,6 @@ async function fetchChunks(silent = false) {
   }
 }
 
-// 详情 + 分块并行加载，分块失败不影响详情展示
-async function loadChunks() {
-  const id = literatureId.value
-  if (!id) return
-
-  await Promise.all([loadLiterature(), fetchChunks(true)])
-  if (loadFailed.value) return
-
-  await loadHistory()
-  restoreFromHistory(history.value)
-  await loadNotes()
-  await tryAutoRebuildChunks()
-  if (hasChunks.value) {
-    restoreFromHistory(history.value)
-  }
-  autoSaveReady = true
-}
-
-/**
- * 文献已绑定原文但分块为空时，自动尝试重建一次索引（含 embedding，走 120s 超时）。
- * 无论成功与否都只提示一次，失败后由 emptyChunkHint 给出兜底文案。
- */
-async function tryAutoRebuildChunks() {
-  if (autoRebuildTried.value || hasChunks.value) return
-  const id = literatureId.value
-  if (!id || !literature.value?.fileId) return
-
-  autoRebuildTried.value = true
-  indexBuilding.value = true
-  try {
-    await rebuildLiteratureIndex(id)
-    await fetchChunks(true)
-    if (!hasChunks.value) {
-      autoRebuildFailed.value = true
-    }
-  } catch (error) {
-    autoRebuildFailed.value = true
-    console.warn(
-      'reader chunk auto rebuild failed, scenario=literature-index-auto-rebuild, literatureId=%s',
-      id,
-      error,
-    )
-  } finally {
-    indexBuilding.value = false
-  }
-}
-
 async function loadHistory() {
   const id = literatureId.value
   if (!id) return
@@ -379,10 +290,11 @@ async function loadHistory() {
   try {
     const result = await getReadingHistory(id)
     history.value = result
-    if (!hasChunks.value) {
-      // 无分块时直接回显后端保存值，有分块时由 restoreFromHistory 映射到分块序号
-      readingState.lastPage = result?.lastPage ?? 1
-    }
+    const saved = (result?.lastPage ?? 1) - 1
+    currentChunkIndex.value = Math.min(
+      Math.max(saved, 0),
+      Math.max(totalChunks.value - 1, 0),
+    )
   } catch (error) {
     console.error(
       'reading history load failed, scenario=reading-history-get, literatureId=%s',
@@ -398,11 +310,7 @@ async function loadNotes() {
 
   notesLoading.value = true
   try {
-    const result = await listReadingNotes({
-      literatureId: id,
-      page: 1,
-      size: 20,
-    })
+    const result = await listReadingNotes({ literatureId: id, page: 1, size: 20 })
     notes.value = result.items
   } catch (error) {
     console.error(
@@ -415,55 +323,66 @@ async function loadNotes() {
   }
 }
 
-/**
- * 静默保存阅读进度：lastPage 存「当前分块序号 + 1」，无分块时沿用已保存值。
- * 自动保存失败只写 console.warn，不弹错误打断阅读。
- */
+async function tryAutoRebuildChunks() {
+  if (autoRebuildTried.value || hasChunks.value) return
+  const id = literatureId.value
+  if (!id || !literature.value?.fileId) return
+
+  autoRebuildTried.value = true
+  indexBuilding.value = true
+  try {
+    await rebuildLiteratureIndex(id)
+    await fetchChunks(true)
+    if (!hasChunks.value) autoRebuildFailed.value = true
+  } catch (error) {
+    autoRebuildFailed.value = true
+    console.warn(
+      'reader chunk auto rebuild failed, scenario=literature-index-auto-rebuild, literatureId=%s',
+      id,
+      error,
+    )
+  } finally {
+    indexBuilding.value = false
+  }
+}
+
 async function persistProgress() {
   const id = literatureId.value
   if (!id || loadFailed.value) return
 
   const lastPage = hasChunks.value
     ? currentChunk.value + 1
-    : readingState.lastPage
-  const progress = progressPercent.value
-  const readDuration = elapsedSeconds.value
+    : Math.max(1, history.value?.lastPage ?? 1)
 
   try {
     const result = await saveReadingHistory(id, {
       lastPage,
-      progress,
-      readDuration,
+      progress: progressPercent.value,
+      readDuration: elapsedSeconds.value,
     })
     history.value = result
-    readingState.lastPage = result?.lastPage ?? lastPage
   } catch (error) {
     console.warn(
-      'reading progress auto save failed, scenario=reading-history-auto-save, literatureId=%s, lastPage=%s, progress=%s, readDuration=%s',
+      'reading progress auto save failed, scenario=reading-history-auto-save, literatureId=%s, lastPage=%s',
       id,
       lastPage,
-      progress,
-      readDuration,
       error,
     )
   }
 }
 
-function scheduleProgressSave() {
-  if (progressSaveTimer !== null) {
-    clearTimeout(progressSaveTimer)
-  }
-  progressSaveTimer = setTimeout(() => {
-    progressSaveTimer = null
-    queueProgressSave()
-  }, PROGRESS_SAVE_DEBOUNCE)
-}
-
-// 串行化保存请求，避免 debounce 与离开页面补存并发导致旧进度覆盖新进度
 let progressSaveChain: Promise<void> = Promise.resolve()
 
 function queueProgressSave() {
   progressSaveChain = progressSaveChain.then(() => persistProgress())
+}
+
+function scheduleProgressSave() {
+  if (progressSaveTimer !== null) clearTimeout(progressSaveTimer)
+  progressSaveTimer = setTimeout(() => {
+    progressSaveTimer = null
+    queueProgressSave()
+  }, PROGRESS_SAVE_DEBOUNCE)
 }
 
 function flushProgressSave() {
@@ -487,10 +406,7 @@ function syncCurrentChunkFromViewport() {
   })
   if (activeIndex === null || activeIndex === currentChunkIndex.value) return
   currentChunkIndex.value = activeIndex
-  chunkPage.value = Math.max(
-    chunkPage.value,
-    Math.floor(activeIndex / chunkPageSize) + 1,
-  )
+  scheduleProgressSave()
 }
 
 function handleScroll() {
@@ -501,22 +417,85 @@ function handleScroll() {
   })
 }
 
-function openNoteCreate() {
-  noteMode.value = 'create'
-  resetNoteForm()
-  noteDrawerVisible.value = true
+async function loadChunks() {
+  const id = literatureId.value
+  if (!id) return
+
+  await Promise.all([loadLiterature(), fetchChunks(true)])
+  if (loadFailed.value) return
+
+  await Promise.all([loadHistory(), loadNotes(), fetchQaHistory()])
+  await tryAutoRebuildChunks()
+  if (hasChunks.value) {
+    const saved = (history.value?.lastPage ?? 1) - 1
+    currentChunkIndex.value = Math.min(
+      Math.max(saved, 0),
+      Math.max(totalChunks.value - 1, 0),
+    )
+  }
 }
 
-function openNoteEdit(note: ReadingNote) {
-  noteMode.value = 'edit'
-  selectedNote.value = note
-  Object.assign(noteForm, {
-    literatureId: note.literatureId,
-    title: note.title,
-    content: note.content,
-    aiGenerated: note.aiGenerated ?? 0,
-  })
-  noteDrawerVisible.value = true
+async function fetchQaHistory() {
+  const id = literatureId.value
+  if (!id) return
+
+  historyLoading.value = true
+  try {
+    qaRecords.value = await listLiteratureQaRecords({
+      literatureId: id,
+      page: 1,
+      size: 20,
+    })
+  } catch (error) {
+    console.error(
+      'qa history load failed, scenario=literature-qa-history, literatureId=%s',
+      id,
+      error,
+    )
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function askQuestion() {
+  const id = literatureId.value
+  if (!id) return
+  if (!qaForm.question.trim()) {
+    ElMessage.warning('请输入要提问的问题')
+    return
+  }
+
+  asking.value = true
+  askError.value = ''
+  try {
+    const result = await askLiteratureQuestion(id, {
+      question: qaForm.question,
+      limit: qaForm.limit,
+    })
+    activeAnswer.value = result
+    qaRecords.value = [
+      result,
+      ...qaRecords.value.filter(
+        (item) => String(item.recordId) !== String(result.recordId),
+      ),
+    ]
+    ElMessage.success('回答已生成')
+  } catch (error) {
+    const failure = error as { message?: string } | null
+    askError.value = failure?.message || '回答生成失败，请稍后重试'
+    console.error(
+      'literature question failed, scenario=literature-rag-question, literatureId=%s, question=%s',
+      id,
+      qaForm.question,
+      error,
+    )
+  } finally {
+    asking.value = false
+  }
+}
+
+function useSuggestion(question: string) {
+  qaForm.question = question
 }
 
 async function saveNote() {
@@ -537,10 +516,9 @@ async function saveNote() {
     await loadNotes()
   } catch (error) {
     console.error(
-      'reading note save failed, scenario=reading-note-save, noteId=%s, literatureId=%s, title=%s',
+      'reading note save failed, scenario=reading-note-save, noteId=%s, literatureId=%s',
       selectedNote.value?.id,
       noteForm.literatureId,
-      noteForm.title,
       error,
     )
   } finally {
@@ -553,11 +531,7 @@ async function removeNote(note: ReadingNote) {
     await ElMessageBox.confirm(
       '删除后不可恢复，确认删除这条阅读笔记？',
       '删除笔记',
-      {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-      },
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
     )
     await deleteReadingNote(note.id)
     ElMessage.success('笔记已删除')
@@ -573,11 +547,6 @@ async function removeNote(note: ReadingNote) {
   }
 }
 
-function goDetail() {
-  router.push(`/student/literature/${literatureId.value}`)
-}
-
-/** 导出本篇阅读笔记（GET /notes/export?literatureId=<id>） */
 async function exportNotes() {
   const id = literatureId.value
   if (!id) return
@@ -598,12 +567,12 @@ async function exportNotes() {
   }
 }
 
-function goQa() {
-  router.push(`/student/literature/${literatureId.value}/qa`)
+function goDetail() {
+  router.push(`/student/literature/${literatureId.value}`)
 }
 
-function goLibrary() {
-  router.push('/student/library')
+function goSearch() {
+  router.push('/student/search')
 }
 
 onMounted(async () => {
@@ -624,15 +593,12 @@ onBeforeUnmount(() => {
     scrollFrame = null
   }
   window.removeEventListener('scroll', handleScroll)
-  // 离开页面时补存一次，失败只在控制台告警
   flushProgressSave()
 })
 </script>
 
 <template>
-  <section class="library-page">
-
-
+  <section class="library-page reader-page">
     <section v-if="loading" class="reader-surface" aria-label="阅读页加载中">
       <el-skeleton :rows="10" animated />
     </section>
@@ -642,122 +608,144 @@ onBeforeUnmount(() => {
       class="reader-surface"
       aria-label="阅读页异常"
     >
-      <el-empty description="文献加载失败或不存在，请返回文献库重新选择">
+      <el-empty description="文献加载失败或不存在，请返回检索页重新选择">
         <div class="detail-actions">
           <el-button :icon="Refresh" type="primary" @click="loadChunks"
             >重新加载</el-button
           >
-          <el-button :icon="ArrowLeft" plain @click="goLibrary"
-            >返回文献库</el-button
+          <el-button :icon="ArrowLeft" plain @click="goSearch"
+            >返回检索</el-button
           >
         </div>
       </el-empty>
     </section>
 
     <template v-else>
-      <section
-        class="reader-surface reader-surface--stage3"
-        aria-label="在线阅读"
-      >
-        <div class="reader-toolbar">
-          <el-button :icon="ArrowLeft" plain @click="goDetail"
-            >返回详情</el-button
-          >
-          <el-button :icon="ChatLineRound" plain @click="goQa"
-            >智能问答</el-button
-          >
-          <el-button :icon="Notebook" plain @click="openNoteCreate"
-            >新建笔记</el-button
-          >
+      <div class="reader-topbar">
+        <el-button :icon="ArrowLeft" text @click="goDetail">返回详情</el-button>
+        <div class="reader-topbar__title">{{ literature.title }}</div>
+        <div class="reader-topbar__meta">
+          <span>{{ progressPercent }}% · {{ elapsedText }}</span>
           <el-button
-            :icon="Document"
-            plain
+            :icon="Download"
+            text
             :loading="noteExporting"
             @click="exportNotes"
           >
             导出笔记
           </el-button>
         </div>
+      </div>
 
-        <div class="reader-shell">
-          <article class="reader-paper">
-            <div class="reader-titlebar">
-              <div>
-                <p class="panel__eyebrow">
-                  {{ displayCategoryName(literature.categoryName ?? null) }}
-                </p>
-                <h2>{{ literature.title }}</h2>
-              </div>
-            </div>
+      <div class="reader-layout">
+        <!-- 左：目录 -->
+        <aside class="reader-toc" aria-label="目录">
+          <p class="reader-toc__caption">目录</p>
+          <nav class="reader-toc__list">
+            <button
+              v-for="item in tocItems"
+              :key="item.id"
+              type="button"
+              class="reader-toc__item"
+              :class="{
+                'is-active':
+                  hasChunks &&
+                  item.id === `chunk-${chunkItems[currentChunk]?.id}`,
+              }"
+              @click="
+                jumpTo(
+                  item.id,
+                  item.id.startsWith('chunk-')
+                    ? Number(item.label.replace(/\D/g, '')) - 1
+                    : undefined,
+                )
+              "
+            >
+              <span>{{ item.label }}</span>
+              <em>{{ item.hint }}</em>
+            </button>
+            <el-empty
+              v-if="!tocItems.length"
+              description="暂无目录"
+              :image-size="70"
+            />
+          </nav>
+        </aside>
 
+        <!-- 中：正文 -->
+        <article class="reader-article">
+          <header class="reader-article__head">
+            <p class="panel__eyebrow">
+              {{ displayCategoryName(literature.categoryName ?? null) }}
+            </p>
+            <h1>{{ literature.title }}</h1>
             <div class="reader-meta">
-              <span>{{ literature.author || '未知作者' }}</span>
-              <span>{{ literature.source || '未填写来源' }}</span>
-              <span>{{ literature.publishDate || '出版日期未知' }}</span>
+              <span>{{ literature.author || '作者未标注' }}</span>
+              <span>{{ literature.source || '来源未标注' }}</span>
+              <span>{{ literature.publishDate || '发表时间未标注' }}</span>
               <span>{{ displayLanguage(literature.language) }}</span>
-              <span>{{ displayLiteratureType(literature.literatureType) }}</span>
             </div>
+            <div class="reader-meta">
+              <span>{{ displayLiteratureType(literature.literatureType) }}</span>
+              <span>在线公开 {{ literature.onlinePublishDate || '未标注' }}</span>
+              <span>被引 {{ literature.citationCount ?? 0 }}</span>
+              <span>下载 {{ literature.downloadCount ?? 0 }}</span>
+            </div>
+          </header>
 
-            <section class="parse-status-grid">
-              <div>
-                <span>阅读位置</span>
-                <strong>{{ hasChunks ? `第 ${currentChunk + 1} 段` : '—' }}</strong>
-              </div>
-              <div>
-                <span>正文段落</span>
-                <strong>{{ totalChunks }} 段</strong>
-              </div>
-              <div>
-                <span>阅读进度</span>
-                <strong>{{ progressPercent }}%</strong>
-              </div>
-              <div>
-                <span>本次时长</span>
-                <strong>{{ elapsedText }}</strong>
-              </div>
-              <div>
-                <span>下载次数</span>
-                <strong>{{ literature.downloadCount ?? 0 }}</strong>
-              </div>
-            </section>
+          <section
+            v-if="literature.aiSummary?.trim()"
+            id="section-ai-summary"
+            class="reader-body__section"
+          >
+            <h2>AI 摘要</h2>
+            <p>{{ literature.aiSummary }}</p>
+          </section>
 
-            <details class="reader-section" v-if="literature.abstractText">
-              <summary>摘要</summary>
-              <p v-for="(paragraph, index) in abstractBlocks" :key="index">
-                {{ paragraph }}
-              </p>
-            </details>
+          <section
+            v-if="abstractBlocks.length"
+            id="section-abstract"
+            class="reader-body__section"
+          >
+            <h2>摘要</h2>
+            <p v-for="(paragraph, index) in abstractBlocks" :key="index">
+              {{ paragraph }}
+            </p>
+          </section>
 
-            <section class="keyword-ribbon" v-if="keywordTokens.length">
+          <section
+            v-if="keywordTokens.length"
+            id="section-keywords"
+            class="reader-body__section"
+          >
+            <h2>关键词</h2>
+            <section class="keyword-ribbon">
               <span v-for="token in keywordTokens" :key="token">{{
                 token
               }}</span>
             </section>
+          </section>
 
-            <section class="reader-section">
-              <h3>正文</h3>
-              <p class="reader-leaf__note">
-                {{
-                  hasChunks
-                    ? `共 ${totalChunks} 段`
-                    : emptyChunkHint
-                }}
-              </p>
-            </section>
-
-            <section
-              v-if="hasChunks"
-              class="chunk-list"
-              :class="{ 'is-busy': chunkLoading }"
-            >
+          <section class="reader-body__section">
+            <h2>正文</h2>
+            <p class="reader-leaf__note">
+              {{
+                hasChunks
+                  ? `共 ${totalChunks} 段，当前位置第 ${currentChunk + 1} 段`
+                  : emptyChunkHint
+              }}
+            </p>
+            <div v-if="chunkLoading" class="chunk-loading">
+              <el-skeleton :rows="4" animated />
+            </div>
+            <div v-else-if="hasChunks" class="reader-chunks">
               <article
-                v-for="item in visibleChunks"
+                v-for="item in chunkItems"
                 :id="`chunk-${item.id}`"
                 :key="item.key"
                 :data-chunk-index="item.chunkIndex"
                 class="chunk-card"
                 :class="{ 'is-current': item.chunkIndex === currentChunk }"
-                @click="jumpToChunk(item.chunkIndex)"
               >
                 <header class="chunk-card__head">
                   <div class="chunk-card__meta">
@@ -780,175 +768,168 @@ onBeforeUnmount(() => {
                   </p>
                 </div>
               </article>
-            </section>
-
-            <section v-else class="reading-grid">
-              <div
-                v-for="block in fallbackBlocks"
-                :key="block.title"
-                class="reader-leaf"
-              >
-                <h3>{{ block.title }}</h3>
-                <p>{{ block.content }}</p>
-              </div>
-              <div v-if="!fallbackBlocks.length" class="reader-leaf">
-                <h3>暂无可用正文</h3>
-                <p class="reader-leaf__note">{{ emptyChunkHint }}</p>
-              </div>
-            </section>
-
-            <section v-if="hasChunks" class="chunk-pager">
-              <div class="chunk-pager__info">
-                已显示 {{ visibleChunks.length }} / {{ totalChunks }} 段
-              </div>
-              <div class="chunk-pager__actions">
-                <el-button
-                  :icon="Refresh"
-                  plain
-                  :disabled="visibleChunks.length >= totalChunks"
-                  @click="loadMoreChunks"
-                >
-                  加载更多
-                </el-button>
-                <el-button
-                  plain
-                  :disabled="visibleChunks.length >= totalChunks"
-                  @click="loadAllChunks"
-                >
-                  加载全部
-                </el-button>
-                <el-button
-                  plain
-                  :disabled="visibleChunks.length <= chunkPageSize"
-                  @click="chunkPage = 1"
-                >
-                  收起
-                </el-button>
-              </div>
-            </section>
-
-            <section class="reader-section" v-if="literature.fileUrl">
-              <h3>原文文件</h3>
-              <div class="file-info">
-                <span>{{ literature.fileType === 'application/pdf' ? 'PDF' : '原文附件' }}</span>
-                <a :href="literature.fileUrl" target="_blank" rel="noreferrer">
-                  <el-button :icon="Document" plain>打开原文</el-button>
-                </a>
-                <el-button :icon="Download" plain @click="goDetail"
-                  >在详情页查看文件信息</el-button
-                >
-              </div>
-            </section>
-
-            <section class="reading-progress-panel">
-              <div class="panel-heading">
-                <div>
-
-                  <h3>阅读进度</h3>
-                </div>
-                <span>{{ progressPercent }}%</span>
-              </div>
-              <el-slider
-                :model-value="progressPercent"
-                :min="0"
-                :max="100"
-                disabled
-              />
-              <div class="history-inputs">
-                <el-input-number
-                  v-model="lastPageModel"
-                  :min="1"
-                  :max="Math.max(totalChunks, 1)"
-                  controls-position="right"
-                />
-                <span>上次阅读到的位置</span>
-              </div>
-              <div class="progress-live">
-                <span
-                  >当前阅读位置：第
-                  {{ hasChunks ? currentChunk + 1 : '—' }} 处 / 共
-                  {{ totalChunks }} 处</span
-                >
-                <span>累计阅读时长：{{ elapsedText }}</span>
-                <span>{{ savedProgressText }}</span>
-                <span>阅读位置会自动保存</span>
-              </div>
-            </section>
-          </article>
-
-          <aside class="glass-panel chunk-toc" aria-label="正文导航">
-            <div class="panel-heading">
-              <div>
-
-                <h3>正文导航</h3>
-              </div>
-              <el-tag effect="plain">{{ totalChunks }} 段</el-tag>
             </div>
-            <el-select
-              v-if="hasChunks"
-              :model-value="currentChunk"
-              class="chunk-toc__select"
-              @update:model-value="jumpToChunk(Number($event))"
+            <el-empty v-else description="暂无可读正文" />
+          </section>
+        </article>
+
+        <!-- 右：智能问答 / 阅读笔记 -->
+        <aside class="reader-side" aria-label="智能问答与阅读笔记">
+          <div class="reader-side__tabs">
+            <button
+              type="button"
+              :class="{ 'is-active': sideTab === 'qa' }"
+              @click="sideTab = 'qa'"
             >
-              <el-option
-                v-for="item in chunkItems"
-                :key="item.key"
-                :label="`第 ${item.chunkIndex + 1} 段 · ${item.paragraphs[0]?.slice(0, 24) || '暂无内容'}`"
-                :value="item.chunkIndex"
+              智能问答
+            </button>
+            <button
+              type="button"
+              :class="{ 'is-active': sideTab === 'note' }"
+              @click="sideTab = 'note'"
+            >
+              阅读笔记（{{ notes.length }}）
+            </button>
+          </div>
+
+          <div v-show="sideTab === 'qa'" class="reader-side__body">
+            <el-input
+              v-model="qaForm.question"
+              type="textarea"
+              :rows="3"
+              placeholder="围绕本篇提问，回答基于正文分块"
+            />
+            <div class="reader-side__row">
+              <span>引用上限</span>
+              <el-input-number
+                v-model="qaForm.limit"
+                :min="1"
+                :max="8"
+                size="small"
+                controls-position="right"
               />
-            </el-select>
-            <div class="chunk-toc__list" v-if="hasChunks">
-              <button
-                v-for="item in chunkItems"
-                :key="item.key"
-                type="button"
-                :class="{ 'is-active': item.chunkIndex === currentChunk }"
-                @click="jumpToChunk(item.chunkIndex)"
+              <el-button
+                type="primary"
+                size="small"
+                :icon="ChatLineRound"
+                :loading="asking"
+                @click="askQuestion"
               >
-                <span>第 {{ item.chunkIndex + 1 }} 段</span>
-                <em>{{ item.paragraphs[0]?.slice(0, 28) || '（空分块）' }}</em>
+                提问
+              </el-button>
+            </div>
+            <div class="reader-side__suggestions">
+              <button
+                v-for="question in suggestedQuestions"
+                :key="question"
+                type="button"
+                @click="useSuggestion(question)"
+              >
+                {{ question }}
               </button>
             </div>
-            <el-empty v-else description="暂无正文目录" />
-          </aside>
-        </div>
-      </section>
+            <el-alert
+              v-if="askError"
+              :title="askError"
+              type="error"
+              :closable="false"
+              show-icon
+            />
 
-      <section class="glass-panel note-board" aria-label="阅读笔记">
-        <div class="panel-heading">
-          <div>
+            <section v-if="activeAnswer" class="reader-side__answer">
+              <p class="reader-side__question">{{ activeAnswer.question }}</p>
+              <p>{{ activeAnswer.answer }}</p>
+              <div class="reader-side__refs" v-if="references.length">
+                <p class="reader-side__caption">
+                  引用片段 {{ references.length }} 条
+                </p>
+                <article v-for="reference in references" :key="reference.id">
+                  <span>#{{ reference.chunkIndex ?? reference.id }}</span>
+                  <p>{{ reference.content.slice(0, 120) }}</p>
+                </article>
+              </div>
+            </section>
+            <el-empty
+              v-else
+              description="输入问题并点击「提问」"
+              :image-size="70"
+            />
 
-            <h3>阅读笔记</h3>
-          </div>
-          <div class="detail-actions">
-            <el-tag effect="plain">
-              <el-icon><List /></el-icon>
-              第 {{ hasChunks ? currentChunk : '—' }} 块
-            </el-tag>
-            <el-button :icon="Collection" plain @click="openNoteCreate"
-              >添加笔记</el-button
-            >
-          </div>
-        </div>
-        <div class="note-list" v-if="notes.length" v-loading="notesLoading">
-          <article v-for="note in notes" :key="note.id" class="note-card">
-            <div>
-              <el-tag v-if="note.aiGenerated" size="small" type="success"
-                >AI</el-tag
+            <section class="reader-side__history" v-if="qaRecords.length">
+              <p class="reader-side__caption">
+                历史问答
+                <el-button
+                  :icon="Refresh"
+                  text
+                  size="small"
+                  :loading="historyLoading"
+                  @click="fetchQaHistory"
+                />
+              </p>
+              <button
+                v-for="(record, index) in qaRecords"
+                :key="record.recordId ?? index"
+                type="button"
+                @click="activeAnswer = record"
               >
-              <h4>{{ note.title }}</h4>
-              <p>{{ note.content }}</p>
-            </div>
-            <div class="note-actions">
-              <el-button text @click="openNoteEdit(note)">编辑</el-button>
-              <el-button text type="danger" @click="removeNote(note)"
-                >删除</el-button
+                {{ record.question }}
+              </button>
+            </section>
+          </div>
+
+          <div v-show="sideTab === 'note'" class="reader-side__body">
+            <div class="reader-side__row">
+              <span>第 {{ hasChunks ? currentChunk + 1 : '—' }} 段</span>
+              <el-button
+                type="primary"
+                size="small"
+                :icon="Plus"
+                @click="openNoteCreate"
               >
+                新建笔记
+              </el-button>
             </div>
-          </article>
+            <div v-loading="notesLoading" class="reader-side__notes">
+              <article v-for="note in notes" :key="note.id">
+                <div class="reader-side__note-head">
+                  <el-tag v-if="note.aiGenerated" size="small" type="success"
+                    >AI</el-tag
+                  >
+                  <strong>{{ note.title }}</strong>
+                  <span class="reader-side__note-actions">
+                    <el-button
+                      :icon="EditPen"
+                      text
+                      size="small"
+                      @click="openNoteEdit(note)"
+                    />
+                    <el-button
+                      :icon="Delete"
+                      text
+                      size="small"
+                      @click="removeNote(note)"
+                    />
+                  </span>
+                </div>
+                <p>{{ note.content }}</p>
+              </article>
+              <el-empty
+                v-if="!notes.length"
+                description="暂无笔记，创建一条阅读批注"
+                :image-size="70"
+              />
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="reader-progressbar">
+        <span>阅读进度 {{ progressPercent }}%</span>
+        <div class="progress-line">
+          <span :style="{ width: `${progressPercent}%` }" />
         </div>
-        <el-empty v-else description="暂无笔记，创建一条阅读批注" />
-      </section>
+        <span>{{ hasChunks ? `第 ${currentChunk + 1} / ${totalChunks} 段` : '—' }}</span>
+      </div>
     </template>
 
     <el-drawer

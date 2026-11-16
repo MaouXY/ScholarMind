@@ -15,6 +15,8 @@ public class LiteratureFavorite {
     private Long id;
     private Long userId;
     private Long literatureId;
+    /** 所属收藏夹；NULL 表示「未分类」 */
+    private Long folderId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

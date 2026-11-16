@@ -13,7 +13,7 @@ param(
     [string]$Password = '123456',
     [string]$PdfPath = '',
     [string]$ExpectedKeyword = 'RECIPROCAL RANK FUSION',
-    [long]$CategoryId = 1100000000000000002,
+    [long]$CategoryId = 1100000000000001007,
     [string]$LogPath = '',
     [switch]$KeepData
 )
@@ -49,7 +49,7 @@ $payload = @{
     title             = '端到端验证：PDF 正文解析与 RRF 融合（含专有名词）'
     author            = 'E2E Verifier'
     source            = 'E2E Pipeline'
-    literatureType    = '会议论文'
+    literatureType    = '学术期刊'
     publishDate       = '2026-01-01'
     onlinePublishDate = '2026-02-01'
     language          = 'en-US'

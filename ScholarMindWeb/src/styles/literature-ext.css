@@ -479,6 +479,101 @@
   justify-content: flex-end;
 }
 
+/* 收藏夹侧栏：全部 / 未分类 / 自定义夹 */
+.folder-rail {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(105, 132, 161, 0.14);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.folder-rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.folder-rail__caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.folder-rail__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.folder-rail__hint {
+  margin: 0;
+  color: var(--color-subtle);
+  font-size: 12px;
+}
+
+.folder-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 2px;
+  border-radius: 999px;
+  transition: background 160ms ease;
+}
+
+.folder-row.is-active {
+  background: rgba(23, 107, 255, 0.08);
+}
+
+.folder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid rgba(105, 132, 161, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  color: #33506f;
+  font-size: 13px;
+  line-height: 1.5;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.folder-chip:hover,
+.folder-chip:focus-visible {
+  border-color: rgba(23, 107, 255, 0.45);
+  color: var(--color-accent);
+}
+
+.folder-chip.is-active {
+  border-color: var(--color-accent);
+  background: rgba(23, 107, 255, 0.1);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.folder-chip em {
+  color: var(--color-subtle);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.folder-row .folder-chip {
+  border-color: transparent;
+  background: transparent;
+}
+
+.folder-row__actions {
+  display: inline-flex;
+  gap: 0;
+}
+
 @media (max-width: 900px) {
   .citation-grid {
     grid-template-columns: 1fr;

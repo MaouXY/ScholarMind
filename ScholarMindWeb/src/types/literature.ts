@@ -1,4 +1,32 @@
-export type LiteratureType = '期刊论文' | '会议论文' | '学位论文' | '图书' | '预印本' | '其他'
+/** 文献类别：与后端 LiteratureRequest 的 @Pattern 保持一致 */
+export type LiteratureType = '学术期刊' | '学位论文（硕士）' | '学位论文（博士）' | '报纸'
+
+export const LITERATURE_TYPE_OPTIONS: LiteratureType[] = [
+  '学术期刊',
+  '学位论文（硕士）',
+  '学位论文（博士）',
+  '报纸',
+]
+
+/** 检索维度：对应后端 searchField 参数 */
+export type LiteratureSearchField =
+  | 'theme'
+  | 'keywords'
+  | 'fulltext'
+  | 'author'
+  | 'abstract'
+  | 'references'
+  | 'source'
+
+export const SEARCH_FIELD_OPTIONS: { value: LiteratureSearchField; label: string }[] = [
+  { value: 'theme', label: '主题' },
+  { value: 'keywords', label: '关键词' },
+  { value: 'fulltext', label: '全文' },
+  { value: 'author', label: '作者' },
+  { value: 'abstract', label: '摘要' },
+  { value: 'references', label: '参考文献' },
+  { value: 'source', label: '文献来源' },
+]
 
 import type { Id } from '@/types/auth'
 
@@ -40,9 +68,11 @@ export interface Literature {
   fileSize?: number | null
   abstractText?: string
   aiSummary?: string
+  referencesText?: string
   keywords?: string
   readCount?: number
   downloadCount?: number
+  citationCount?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -51,8 +81,12 @@ export interface LiteratureQuery {
   page: number
   size: number
   keyword?: string
+  /** 检索维度：topic/keywords/fulltext/author/abstract/references/source */
+  searchField?: LiteratureSearchField | string
   categoryId?: Id
   literatureType?: LiteratureType | string
+  yearFrom?: number
+  yearTo?: number
 }
 
 export interface LiteraturePayload {
@@ -67,6 +101,8 @@ export interface LiteraturePayload {
   fileId?: Id
   abstractText?: string
   keywords?: string
+  referencesText?: string
+  citationCount?: number
 }
 
 export interface LiteratureChunk {
@@ -211,7 +247,26 @@ export interface Favorite {
   author?: string | null
   categoryName?: string | null
   readCount: number
+  /** 所属收藏夹；null 表示未分类 */
+  folderId?: Id | null
+  folderName?: string | null
   createdAt?: string
+}
+
+/** 收藏夹（GET /favorites/folders） */
+export interface FavoriteFolder {
+  id: Id
+  name: string
+  description?: string | null
+  sort?: number
+  favoriteCount: number
+  createdAt?: string
+}
+
+export interface FavoriteFolderPayload {
+  name: string
+  description?: string | null
+  sort?: number
 }
 
 /** 我的书房 · 阅读历史列表项（GET /reading-history） */

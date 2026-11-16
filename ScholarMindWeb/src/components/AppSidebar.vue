@@ -58,7 +58,7 @@ const roleLabel = computed(() => {
         :key="item.path"
         :to="item.path"
         class="sidebar__link"
-        :class="{ 'is-active': currentPath === item.path || (item.path === '/student/library' && currentPath.startsWith('/student/literature/')) }"
+        :class="{ 'is-active': currentPath === item.path || (item.path === '/student/search' && currentPath.startsWith('/student/literature/')) }"
         :aria-label="item.label"
       >
         <span class="sidebar__icon"><el-icon><component :is="item.icon" /></el-icon></span>

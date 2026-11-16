@@ -6,6 +6,9 @@ import {
   Delete,
   Document,
   Download,
+  EditPen,
+  FolderAdd,
+  FolderOpened,
   Notebook,
   Reading,
   Refresh,
@@ -14,16 +17,23 @@ import {
 } from '@element-plus/icons-vue'
 
 import {
+  createFavoriteFolder,
+  deleteFavoriteFolder,
   deleteReadingNote,
+  listFavoriteFolders,
   listFavorites,
   listReadingHistory,
   listReadingNotes,
+  moveFavoriteFolder,
   unfavoriteLiterature,
+  updateFavoriteFolder,
 } from '@/api/literature'
 import { downloadReadingNotes } from '@/utils/download'
 import { displayCategoryName } from '@/utils/format'
 import type {
   Favorite,
+  FavoriteFolder,
+  FavoriteFolderPayload,
   Id,
   ReadingHistoryItem,
   ReadingNote,
@@ -39,7 +49,25 @@ const favorites = ref<Favorite[]>([])
 const favoritesTotal = ref(0)
 const favoritesLoading = ref(false)
 const favoritesRemovingId = ref<Id | null>(null)
-const favoriteQuery = ref({ page: 1, size: 10 })
+const favoriteQuery = ref<{ page: number; size: number; folderId?: Id }>({
+  page: 1,
+  size: 10,
+})
+
+/* ----------------------------- 收藏夹 ----------------------------- */
+/** 0 表示「未分类」，undefined 表示「全部收藏」 */
+const folders = ref<FavoriteFolder[]>([])
+const foldersLoading = ref(false)
+const activeFolderId = ref<Id | undefined>(undefined)
+const folderDialogVisible = ref(false)
+const folderDialogMode = ref<'create' | 'edit'>('create')
+const folderSaving = ref(false)
+const folderRemovingId = ref<Id | null>(null)
+const editingFolder = ref<FavoriteFolder | null>(null)
+const folderForm = ref<FavoriteFolderPayload>({ name: '', description: '' })
+
+/** 后端约定：folderId 传 0 表示「未分类」；ID 统一按字符串传输 */
+const UNCLASSIFIED: Id = '0'
 
 /* ----------------------------- 阅读历史 ----------------------------- */
 const historyItems = ref<ReadingHistoryItem[]>([])
@@ -104,23 +132,171 @@ function excerpt(content?: string | null, length = 96) {
 }
 
 /* ----------------------------- 收藏：数据 ----------------------------- */
+/** 全部收藏总数（不受当前收藏夹筛选影响） */
+const allFavoritesTotal = ref(0)
+
+async function refreshAllFavoriteTotal() {
+  try {
+    const result = await listFavorites({ page: 1, size: 1 })
+    allFavoritesTotal.value = result.total
+  } catch (error) {
+    console.error(
+      'favorite total refresh failed, scenario=favorite-total',
+      error,
+    )
+  }
+}
+
 async function loadFavorites() {
   favoritesLoading.value = true
   try {
-    const result = await listFavorites({ ...favoriteQuery.value })
+    const result = await listFavorites({
+      page: favoriteQuery.value.page,
+      size: favoriteQuery.value.size,
+      folderId: activeFolderId.value,
+    })
     favorites.value = result.items
     favoritesTotal.value = result.total
   } catch (error) {
     console.error(
-      'favorite list failed, scenario=favorite-list, page=%s, size=%s',
+      'favorite list failed, scenario=favorite-list, page=%s, size=%s, folderId=%s',
       favoriteQuery.value.page,
       favoriteQuery.value.size,
+      activeFolderId.value,
       error,
     )
     favorites.value = []
     favoritesTotal.value = 0
   } finally {
     favoritesLoading.value = false
+  }
+}
+
+/* ---------------------------- 收藏夹：数据 ---------------------------- */
+async function loadFolders() {
+  foldersLoading.value = true
+  try {
+    folders.value = await listFavoriteFolders()
+  } catch (error) {
+    console.error(
+      'favorite folder list failed, scenario=favorite-folder-list',
+      error,
+    )
+    folders.value = []
+  } finally {
+    foldersLoading.value = false
+  }
+}
+
+/** 切换当前收藏夹；0 为未分类，undefined 为全部 */
+async function selectFolder(folderId?: Id) {
+  activeFolderId.value = folderId
+  favoriteQuery.value.page = 1
+  await loadFavorites()
+}
+
+function folderCountText(folder: FavoriteFolder) {
+  return `${folder.favoriteCount ?? 0}`
+}
+
+function openFolderCreate() {
+  folderDialogMode.value = 'create'
+  editingFolder.value = null
+  folderForm.value = { name: '', description: '' }
+  folderDialogVisible.value = true
+}
+
+function openFolderEdit(folder: FavoriteFolder) {
+  folderDialogMode.value = 'edit'
+  editingFolder.value = folder
+  folderForm.value = {
+    name: folder.name,
+    description: folder.description ?? '',
+  }
+  folderDialogVisible.value = true
+}
+
+async function submitFolder() {
+  if (!folderForm.value.name.trim()) {
+    ElMessage.warning('请填写收藏夹名称')
+    return
+  }
+
+  folderSaving.value = true
+  try {
+    if (folderDialogMode.value === 'edit' && editingFolder.value) {
+      await updateFavoriteFolder(editingFolder.value.id, folderForm.value)
+      ElMessage.success('收藏夹已更新')
+    } else {
+      await createFavoriteFolder(folderForm.value)
+      ElMessage.success('收藏夹已创建')
+    }
+    folderDialogVisible.value = false
+    await loadFolders()
+  } catch (error) {
+    console.error(
+      'favorite folder save failed, scenario=favorite-folder-save, mode=%s, folderId=%s',
+      folderDialogMode.value,
+      editingFolder.value?.id,
+      error,
+    )
+  } finally {
+    folderSaving.value = false
+  }
+}
+
+async function removeFolder(folder: FavoriteFolder) {
+  try {
+    await ElMessageBox.confirm(
+      `删除收藏夹「${folder.name}」后，夹内 ${folder.favoriteCount ?? 0} 篇收藏会退回「未分类」，收藏本身不会被删除。确认删除？`,
+      '删除收藏夹',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch (error) {
+    if (error === 'cancel') return
+    return
+  }
+
+  folderRemovingId.value = folder.id
+  try {
+    await deleteFavoriteFolder(folder.id)
+    ElMessage.success('收藏夹已删除')
+    if (activeFolderId.value === folder.id) {
+      activeFolderId.value = undefined
+    }
+    await Promise.all([loadFolders(), loadFavorites()])
+  } catch (error) {
+    console.error(
+      'favorite folder delete failed, scenario=favorite-folder-delete, folderId=%s',
+      folder.id,
+      error,
+    )
+  } finally {
+    folderRemovingId.value = null
+  }
+}
+
+/** 单归属：把一篇收藏移动到指定收藏夹（0 表示未分类） */
+async function moveFavorite(item: Favorite, folderId: Id) {
+  if (String(item.folderId ?? UNCLASSIFIED) === String(folderId)) return
+
+  try {
+    await moveFavoriteFolder(item.literatureId, folderId)
+    ElMessage.success(
+      folderId === UNCLASSIFIED ? '已移到未分类' : '已移动收藏夹',
+    )
+    await Promise.all([loadFolders(), loadFavorites()])
+  } catch (error) {
+    console.error(
+      'favorite move failed, scenario=favorite-move, literatureId=%s, folderId=%s',
+      item.literatureId,
+      folderId,
+      error,
+    )
   }
 }
 
@@ -152,7 +328,11 @@ async function removeFavorite(item: Favorite) {
     if (favorites.value.length === 1 && favoriteQuery.value.page > 1) {
       favoriteQuery.value.page -= 1
     }
-    await loadFavorites()
+    await Promise.all([
+      loadFavorites(),
+      loadFolders(),
+      refreshAllFavoriteTotal(),
+    ])
   } catch (error) {
     console.error(
       'favorite remove failed, scenario=favorite-remove, literatureId=%s',
@@ -275,7 +455,7 @@ function openReader(literatureId: Id) {
 }
 
 function goLibrary() {
-  router.push('/student/library')
+  router.push('/student/search')
 }
 
 function handleTabChange(name: string | number) {
@@ -291,7 +471,7 @@ function handleTabChange(name: string | number) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadFavorites(), loadHistory(), loadNotes()])
+  await Promise.all([loadFolders(), refreshAllFavoriteTotal(), loadFavorites(), loadHistory(), loadNotes()])
 })
 </script>
 
@@ -299,7 +479,7 @@ onMounted(async () => {
   <section class="library-page">
     <div class="shelf-summary"><div class="hero-stats">
         <span>
-          <strong>{{ favoritesTotal }}</strong>
+          <strong>{{ allFavoritesTotal }}</strong>
           收藏文献
         </span>
         <span>
@@ -316,6 +496,75 @@ onMounted(async () => {
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="收藏" name="favorites">
           <div class="shelf-pane">
+            <div class="folder-rail" v-loading="foldersLoading">
+              <div class="folder-rail__head">
+                <span class="folder-rail__caption">
+                  <el-icon><FolderOpened /></el-icon>
+                  收藏夹
+                </span>
+                <el-button
+                  :icon="FolderAdd"
+                  text
+                  size="small"
+                  @click="openFolderCreate"
+                >
+                  新建
+                </el-button>
+              </div>
+              <div class="folder-rail__list">
+                <button
+                  type="button"
+                  class="folder-chip"
+                  :class="{ 'is-active': activeFolderId === undefined }"
+                  @click="selectFolder(undefined)"
+                >
+                  <span>全部收藏</span>
+                  <em>{{ allFavoritesTotal }}</em>
+                </button>
+                <button
+                  type="button"
+                  class="folder-chip"
+                  :class="{ 'is-active': activeFolderId === UNCLASSIFIED }"
+                  @click="selectFolder(UNCLASSIFIED)"
+                >
+                  <span>未分类</span>
+                </button>
+                <div
+                  v-for="folder in folders"
+                  :key="folder.id"
+                  class="folder-row"
+                  :class="{ 'is-active': String(activeFolderId) === String(folder.id) }"
+                >
+                  <button
+                    type="button"
+                    class="folder-chip"
+                    @click="selectFolder(folder.id)"
+                  >
+                    <span>{{ folder.name }}</span>
+                    <em>{{ folderCountText(folder) }}</em>
+                  </button>
+                  <span class="folder-row__actions">
+                    <el-button
+                      :icon="EditPen"
+                      text
+                      size="small"
+                      @click="openFolderEdit(folder)"
+                    />
+                    <el-button
+                      :icon="Delete"
+                      text
+                      size="small"
+                      :loading="folderRemovingId === folder.id"
+                      @click="removeFolder(folder)"
+                    />
+                  </span>
+                </div>
+                <p v-if="!folders.length && !foldersLoading" class="folder-rail__hint">
+                  还没有收藏夹，点「新建」按主题建一个
+                </p>
+              </div>
+            </div>
+
             <div class="shelf-toolbar">
               <span class="shelf-toolbar__info">
                 共 {{ favoritesTotal }} 篇收藏，本页累计阅读
@@ -331,7 +580,7 @@ onMounted(async () => {
                   刷新
                 </el-button>
                 <el-button :icon="StarFilled" plain @click="goLibrary">
-                  去文献库
+                  去检索文献
                 </el-button>
               </div>
             </div>
@@ -352,9 +601,41 @@ onMounted(async () => {
                       </span>
                       <span>阅读 {{ item.readCount ?? 0 }} 次</span>
                       <span>收藏于 {{ formatDateTime(item.createdAt) }}</span>
+                      <el-tag
+                        v-if="item.folderName"
+                        size="small"
+                        effect="plain"
+                      >
+                        {{ item.folderName }}
+                      </el-tag>
+                      <el-tag v-else size="small" effect="plain" type="info">
+                        未分类
+                      </el-tag>
                     </div>
                   </div>
                   <div class="shelf-card__actions">
+                    <el-dropdown
+                      trigger="click"
+                      @command="(command: Id) => moveFavorite(item, command)"
+                    >
+                      <el-button :icon="FolderOpened" size="small" plain>
+                        移动到
+                      </el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item :command="UNCLASSIFIED">
+                            未分类
+                          </el-dropdown-item>
+                          <el-dropdown-item
+                            v-for="folder in folders"
+                            :key="folder.id"
+                            :command="folder.id"
+                          >
+                            {{ folder.name }}
+                          </el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
                     <el-button
                       :icon="Document"
                       size="small"
@@ -386,7 +667,7 @@ onMounted(async () => {
               </div>
               <el-empty
                 v-else
-                description="还没有收藏文献，去文献库挑几篇感兴趣的论文吧"
+                description="该收藏夹下还没有文献，去检索页挑几篇感兴趣的论文吧"
               />
             </div>
 
@@ -598,5 +879,34 @@ onMounted(async () => {
         </el-tab-pane>
       </el-tabs>
     </section>
+
+    <el-dialog
+      v-model="folderDialogVisible"
+      :title="folderDialogMode === 'create' ? '新建收藏夹' : '编辑收藏夹'"
+      width="420px"
+    >
+      <el-form label-position="top">
+        <el-form-item label="名称">
+          <el-input
+            v-model="folderForm.name"
+            maxlength="64"
+            placeholder="例如：精读中 / 综述材料"
+          />
+        </el-form-item>
+        <el-form-item label="说明（可选）">
+          <el-input
+            v-model="folderForm.description"
+            maxlength="255"
+            placeholder="这个收藏夹放什么"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="folderDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="folderSaving" @click="submitFolder">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>

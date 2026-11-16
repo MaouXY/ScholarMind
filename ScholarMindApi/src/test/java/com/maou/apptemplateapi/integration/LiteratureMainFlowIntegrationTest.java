@@ -14,6 +14,8 @@ import com.maou.apptemplateapi.module.citation.dto.CitationRecordResponse;
 import com.maou.apptemplateapi.module.citation.dto.CitationSaveRequest;
 import com.maou.apptemplateapi.module.citation.dto.CitationStyleResponse;
 import com.maou.apptemplateapi.module.citation.service.CitationService;
+import com.maou.apptemplateapi.module.literature.dto.FavoriteFolderRequest;
+import com.maou.apptemplateapi.module.literature.dto.FavoriteFolderResponse;
 import com.maou.apptemplateapi.module.literature.dto.FavoriteResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureIndexResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureQuestionRequest;
@@ -42,6 +44,7 @@ import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
 import com.maou.apptemplateapi.module.literature.mapper.ReadingHistoryMapper;
 import com.maou.apptemplateapi.module.literature.mapper.ReadingNoteMapper;
 import com.maou.apptemplateapi.module.literature.service.LiteratureAiService;
+import com.maou.apptemplateapi.module.literature.service.LiteratureFavoriteFolderService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureFavoriteService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureIndexService;
 import com.maou.apptemplateapi.module.literature.service.LiteratureService;
@@ -126,6 +129,8 @@ class LiteratureMainFlowIntegrationTest {
     @Autowired
     private LiteratureFavoriteService favoriteService;
     @Autowired
+    private LiteratureFavoriteFolderService favoriteFolderService;
+    @Autowired
     private ReadingHistoryService readingHistoryService;
     @Autowired
     private ReadingNoteService readingNoteService;
@@ -172,14 +177,14 @@ class LiteratureMainFlowIntegrationTest {
         authenticate(ADMIN_ID, UserRole.ADMIN);
         LiteratureResponse created = literatureService.create(literatureRequest("集成测试文献：混合检索方法"));
         assertEquals(ADMIN_ID, created.uploaderId(), "上传者应为当前管理员");
-        assertEquals("期刊论文", created.literatureType());
+        assertEquals("学术期刊", created.literatureType());
         assertEquals(LocalDate.of(2024, 1, 1), created.publishDate());
         assertEquals(LocalDate.of(2024, 1, 1), created.onlinePublishDate());
         assertEquals("PUBLISHED", literatureMapper.selectById(created.id()).getStatus());
 
         authenticate(STUDENT_A_ID, UserRole.STUDENT);
         assertEquals(created.id(), literatureService.detail(created.id()).id(), "学生应能读到管理员上传的文献");
-        assertTrue(literatureService.list(1, 10, "混合检索方法", null, null).getItems().stream()
+        assertTrue(literatureService.list(1, 10, "混合检索方法", null, null, null, null, null).getItems().stream()
                         .anyMatch(item -> created.id().equals(item.id())),
                 "学生列表应包含该文献");
     }
@@ -200,12 +205,12 @@ class LiteratureMainFlowIntegrationTest {
     void literatureUpload_filtersByTypeAndSubject() {
         authenticate(ADMIN_ID, UserRole.ADMIN);
         LiteratureResponse created = literatureService.create(
-                literatureRequest("会议论文筛选测试", "会议论文", CATEGORY_ID));
-        assertEquals("会议论文", created.literatureType());
+                literatureRequest("学位论文筛选测试", "学位论文（硕士）", CATEGORY_ID));
+        assertEquals("学位论文（硕士）", created.literatureType());
 
-        assertEquals(1, literatureService.list(1, 10, "会议论文筛选测试", null, "会议论文").getItems().size());
-        assertTrue(literatureService.list(1, 10, "会议论文筛选测试", null, "图书").getItems().isEmpty());
-        assertEquals(1, literatureService.list(1, 10, "会议论文筛选测试", CATEGORY_ID, null).getItems().size());
+        assertEquals(1, literatureService.list(1, 10, "学位论文筛选测试", null, null, "学位论文（硕士）", null, null).getItems().size());
+        assertTrue(literatureService.list(1, 10, "学位论文筛选测试", null, null, "报纸", null, null).getItems().isEmpty());
+        assertEquals(1, literatureService.list(1, 10, "学位论文筛选测试", null, CATEGORY_ID, null, null, null).getItems().size());
     }
 
     @Test
@@ -317,6 +322,92 @@ class LiteratureMainFlowIntegrationTest {
         // 最后一轮再收藏，确认仍可正常写入
         favoriteService.favorite(created.id());
         assertTrue(favoriteService.isFavorited(created.id(), STUDENT_A_ID));
+    }
+
+    // ---------------------------------------------------------------- 收藏夹
+
+    @Test
+    @DisplayName("收藏夹：创建/重名拦截/收藏入夹/移动/删除夹退回未分类")
+    void favoriteFolder_lifecycleAndMove() {
+        LiteratureResponse first = createAsAdmin("收藏夹测试文献一");
+        LiteratureResponse second = createAsAdmin("收藏夹测试文献二");
+        authenticate(STUDENT_A_ID, UserRole.STUDENT);
+
+        FavoriteFolderResponse reading = favoriteFolderService.create(new FavoriteFolderRequest("精读中", "正在精读的文献", 0));
+        assertEquals("精读中", reading.name());
+        assertEquals(0, reading.favoriteCount());
+        BusinessException duplicated = assertThrows(BusinessException.class,
+                () -> favoriteFolderService.create(new FavoriteFolderRequest("精读中", null, 0)));
+        assertEquals(ErrorCode.FAVORITE_FOLDER_DUPLICATED, duplicated.getErrorCode());
+
+        FavoriteResponse favorited = favoriteService.favorite(first.id(), reading.id());
+        assertEquals(reading.id(), favorited.folderId());
+        assertEquals("精读中", favorited.folderName());
+        assertEquals(1, favoriteFolderService.list().stream()
+                .filter(folder -> folder.id().equals(reading.id())).findFirst().orElseThrow().favoriteCount());
+
+        FavoriteFolderResponse later = favoriteFolderService.create(new FavoriteFolderRequest("待读", null, 1));
+        favoriteService.favorite(second.id(), later.id());
+        favoriteFolderService.moveLiterature(first.id(), later.id());
+        assertEquals(2, favoriteService.list(1, 10, later.id()).getItems().size(), "移动后两个夹应都在「待读」");
+        assertEquals(0, favoriteService.list(1, 10, reading.id()).getItems().size(), "原夹应已清空");
+
+        // 显式指定未分类（0）也算合法目标
+        favoriteFolderService.moveLiterature(first.id(), 0L);
+        assertEquals(1, favoriteService.list(1, 10, 0L).getItems().size(), "移入未分类后应出现在未分类列表");
+
+        // 删除收藏夹：夹内文献退回未分类，收藏记录保留
+        favoriteFolderService.delete(later.id());
+        assertTrue(favoriteFolderService.list().stream().noneMatch(folder -> folder.id().equals(later.id())));
+        assertEquals(2, favoriteService.list(1, 10, null).getItems().size(), "删夹不应删除收藏记录");
+        assertEquals(2, favoriteService.list(1, 10, 0L).getItems().size(), "删夹后夹内文献应退回未分类");
+    }
+
+    @Test
+    @DisplayName("收藏夹：不能操作别人的收藏夹")
+    void favoriteFolder_deniesOtherUsersFolder() {
+        LiteratureResponse literature = createAsAdmin("收藏夹越权测试文献");
+        authenticate(STUDENT_A_ID, UserRole.STUDENT);
+        FavoriteFolderResponse folder = favoriteFolderService.create(new FavoriteFolderRequest("A 的夹", null, 0));
+
+        authenticate(STUDENT_B_ID, UserRole.STUDENT);
+        BusinessException denied = assertThrows(BusinessException.class,
+                () -> favoriteService.favorite(literature.id(), folder.id()));
+        assertEquals(ErrorCode.FAVORITE_FOLDER_NOT_FOUND, denied.getErrorCode());
+        assertThrows(BusinessException.class, () -> favoriteFolderService.delete(folder.id()));
+    }
+
+    // ---------------------------------------------------------------- 检索维度
+
+    @Test
+    @DisplayName("检索维度：主题/作者/摘要/参考文献/来源各自命中，年度区间过滤生效")
+    void literatureSearch_dimensionsAndYearRange() {
+        authenticate(ADMIN_ID, UserRole.ADMIN);
+        LiteratureResponse created = literatureService.create(new LiteratureRequest(
+                "知识图谱补全方法综述", "张知远", "情报学报测试专刊", "学术期刊", CATEGORY_ID,
+                LocalDate.of(2023, 5, 1), LocalDate.of(2023, 6, 1), "zh-CN", null,
+                "本文综述知识图谱补全的符号推理与表示学习两条路线。",
+                "知识图谱,补全,综述",
+                "张三. 知识图谱综述[J]. 情报学报, 2020. 李四. 表示学习进展[J]. 软件学报, 2021.", 37));
+
+        // 主题维度只匹配标题
+        assertEquals(1, literatureService.list(1, 10, "知识图谱补全方法", "theme", null, null, null, null)
+                .getItems().size());
+        assertTrue(literatureService.list(1, 10, "测试专刊", "theme", null, null, null, null).getItems().isEmpty(),
+                "来源不应被主题维度命中");
+        assertEquals(1, literatureService.list(1, 10, "张知远", "author", null, null, null, null).getItems().size());
+        assertEquals(1, literatureService.list(1, 10, "符号推理", "abstract", null, null, null, null).getItems().size());
+        assertEquals(1, literatureService.list(1, 10, "软件学报", "references", null, null, null, null).getItems().size());
+        assertEquals(1, literatureService.list(1, 10, "测试专刊", "source", null, null, null, null).getItems().size());
+        // 不指定维度时退化为多字段匹配，来源也能命中
+        assertEquals(1, literatureService.list(1, 10, "测试专刊", null, null, null, null, null).getItems().size());
+
+        // 年度区间：publish_date = 2023-05-01
+        assertEquals(1, literatureService.list(1, 10, "知识图谱补全方法", "theme", null, null, 2023, 2023)
+                .getItems().size());
+        assertTrue(literatureService.list(1, 10, "知识图谱补全方法", "theme", null, null, 2024, 2026)
+                .getItems().isEmpty(), "2024 起不应命中年内发表的文献");
+        assertEquals(37, created.citationCount(), "被引次数应原样落库并回显");
     }
 
     // ---------------------------------------------------------------- 引用管理
@@ -528,14 +619,14 @@ class LiteratureMainFlowIntegrationTest {
     }
 
     private LiteratureRequest literatureRequest(String title) {
-        return literatureRequest(title, "期刊论文", CATEGORY_ID);
+        return literatureRequest(title, "学术期刊", CATEGORY_ID);
     }
 
     private LiteratureRequest literatureRequest(String title, String literatureType, Long categoryId) {
         return new LiteratureRequest(title, "集成测试作者", "集成测试来源", literatureType, categoryId,
                 LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1), "zh-CN", null,
                 "本文用于集成测试，关注混合检索与 RRF 融合排序在学术文献检索中的效果。",
-                "混合检索,RRF,集成测试");
+                "混合检索,RRF,集成测试", null, 0);
     }
 
     /** 以管理员身份上传一条文献，返回创建结果；调用后 SecurityContext 停留在管理员。 */
@@ -549,7 +640,7 @@ class LiteratureMainFlowIntegrationTest {
         literature.setTitle(title);
         literature.setAuthor("集成测试作者");
         literature.setSource("集成测试来源");
-        literature.setLiteratureType("期刊论文");
+        literature.setLiteratureType("学术期刊");
         literature.setPublishDate(LocalDate.of(2024, 1, 1));
         literature.setOnlinePublishDate(LocalDate.of(2024, 1, 1));
         literature.setLanguage("zh-CN");

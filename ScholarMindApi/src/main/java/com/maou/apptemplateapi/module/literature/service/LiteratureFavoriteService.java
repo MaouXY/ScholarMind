@@ -11,7 +11,9 @@ import com.maou.apptemplateapi.module.literature.dto.FavoriteResponse;
 import com.maou.apptemplateapi.module.literature.entity.Literature;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureCategory;
 import com.maou.apptemplateapi.module.literature.entity.LiteratureFavorite;
+import com.maou.apptemplateapi.module.literature.entity.LiteratureFavoriteFolder;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureCategoryMapper;
+import com.maou.apptemplateapi.module.literature.mapper.LiteratureFavoriteFolderMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureFavoriteMapper;
 import com.maou.apptemplateapi.module.literature.mapper.LiteratureMapper;
 import lombok.RequiredArgsConstructor;
@@ -33,12 +35,24 @@ public class LiteratureFavoriteService {
     private static final String UNKNOWN_TITLE = "文献已删除或不可见";
 
     private final LiteratureFavoriteMapper favoriteMapper;
+    private final LiteratureFavoriteFolderMapper folderMapper;
     private final LiteratureMapper literatureMapper;
     private final LiteratureCategoryMapper categoryMapper;
     private final LiteratureService literatureService;
+    private final LiteratureFavoriteFolderService folderService;
 
     @Transactional
     public FavoriteResponse favorite(Long literatureId) {
+        return favorite(literatureId, null);
+    }
+
+    /**
+     * 收藏文献。
+     *
+     * @param folderId 目标收藏夹；为空时落到该用户的第一个收藏夹，没有则自动建「默认收藏夹」
+     */
+    @Transactional
+    public FavoriteResponse favorite(Long literatureId, Long folderId) {
         CurrentUser currentUser = CurrentUserProvider.require();
         Literature literature = literatureService.requireReadableLiterature(literatureId, currentUser, "literature-favorite-create");
         LiteratureFavorite existing = favoriteMapper.selectOne(new LambdaQueryWrapper<LiteratureFavorite>()
@@ -54,6 +68,7 @@ public class LiteratureFavoriteService {
         LiteratureFavorite favorite = new LiteratureFavorite();
         favorite.setUserId(currentUser.getId());
         favorite.setLiteratureId(literature.getId());
+        favorite.setFolderId(folderService.resolveFolderForNewFavorite(currentUser.getId(), folderId));
         try {
             favoriteMapper.insert(favorite);
         } catch (DuplicateKeyException exception) {
@@ -63,9 +78,10 @@ public class LiteratureFavoriteService {
                     literatureId, currentUser.getId());
             throw new BusinessException(ErrorCode.LITERATURE_FAVORITE_DUPLICATED);
         }
-        log.info("literature favorited, scenario=literature-favorite-create, literatureId={}, userId={}, favoriteId={}",
-                literatureId, currentUser.getId(), favorite.getId());
-        return toResponse(favoriteMapper.selectById(favorite.getId()), literature, categoryName(literature.getCategoryId()));
+        log.info("literature favorited, scenario=literature-favorite-create, literatureId={}, userId={}, favoriteId={}, folderId={}",
+                literatureId, currentUser.getId(), favorite.getId(), favorite.getFolderId());
+        return toResponse(favoriteMapper.selectById(favorite.getId()), literature,
+                categoryName(literature.getCategoryId()), folderName(favorite.getFolderId()));
     }
 
     @Transactional
@@ -89,13 +105,25 @@ public class LiteratureFavoriteService {
                 literatureId, currentUser.getId(), favorite.getId());
     }
 
-    public PageResult<FavoriteResponse> list(long page, long size) {
+    /**
+     * 我的收藏列表。
+     *
+     * @param folderId 只看某个收藏夹；传 0 只看未分类；为空看全部
+     */
+    public PageResult<FavoriteResponse> list(long page, long size, Long folderId) {
         CurrentUser currentUser = CurrentUserProvider.require();
+        LambdaQueryWrapper<LiteratureFavorite> wrapper = new LambdaQueryWrapper<LiteratureFavorite>()
+                .eq(LiteratureFavorite::getUserId, currentUser.getId())
+                .eq(LiteratureFavorite::getDeleted, 0);
+        if (folderId != null) {
+            if (folderId == 0L) {
+                wrapper.isNull(LiteratureFavorite::getFolderId);
+            } else {
+                wrapper.eq(LiteratureFavorite::getFolderId, folderId);
+            }
+        }
         Page<LiteratureFavorite> result = favoriteMapper.selectPage(new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),
-                new LambdaQueryWrapper<LiteratureFavorite>()
-                        .eq(LiteratureFavorite::getUserId, currentUser.getId())
-                        .eq(LiteratureFavorite::getDeleted, 0)
-                        .orderByDesc(LiteratureFavorite::getCreatedAt)
+                wrapper.orderByDesc(LiteratureFavorite::getCreatedAt)
                         .orderByDesc(LiteratureFavorite::getId));
         Map<Long, Literature> literatureMap = loadLiteratures(result.getRecords().stream()
                 .map(LiteratureFavorite::getLiteratureId)
@@ -106,13 +134,19 @@ public class LiteratureFavoriteService {
                 .filter(java.util.Objects::nonNull)
                 .distinct()
                 .toList());
+        Map<Long, String> folderMap = loadFolderNames(result.getRecords().stream()
+                .map(LiteratureFavorite::getFolderId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList());
         List<FavoriteResponse> items = result.getRecords().stream()
                 .map(favorite -> {
                     Literature literature = literatureMap.get(favorite.getLiteratureId());
                     String categoryName = literature == null || literature.getCategoryId() == null
                             ? null
                             : categoryMap.get(literature.getCategoryId());
-                    return toResponse(favorite, literature, categoryName);
+                    String folderName = favorite.getFolderId() == null ? null : folderMap.get(favorite.getFolderId());
+                    return toResponse(favorite, literature, categoryName, folderName);
                 })
                 .toList();
         return PageResult.of(items, result.getCurrent(), result.getSize(), result.getTotal());
@@ -155,7 +189,24 @@ public class LiteratureFavoriteService {
         return category == null || category.getDeleted() != 0 ? null : category.getName();
     }
 
-    private FavoriteResponse toResponse(LiteratureFavorite favorite, Literature literature, String categoryName) {
+    private Map<Long, String> loadFolderNames(List<Long> folderIds) {
+        if (folderIds.isEmpty()) {
+            return Map.of();
+        }
+        return folderMapper.selectBatchIds(folderIds).stream()
+                .collect(Collectors.toMap(LiteratureFavoriteFolder::getId, LiteratureFavoriteFolder::getName, (left, right) -> left));
+    }
+
+    private String folderName(Long folderId) {
+        if (folderId == null) {
+            return null;
+        }
+        LiteratureFavoriteFolder folder = folderMapper.selectById(folderId);
+        return folder == null || folder.getDeleted() != 0 ? null : folder.getName();
+    }
+
+    private FavoriteResponse toResponse(LiteratureFavorite favorite, Literature literature, String categoryName,
+                                        String folderName) {
         boolean readable = literature != null && literature.getDeleted() == 0;
         return new FavoriteResponse(
                 favorite.getId(),
@@ -164,6 +215,8 @@ public class LiteratureFavoriteService {
                 readable ? literature.getAuthor() : null,
                 categoryName,
                 readable && literature.getReadCount() != null ? literature.getReadCount() : 0,
+                favorite.getFolderId(),
+                folderName,
                 favorite.getCreatedAt());
     }
 }

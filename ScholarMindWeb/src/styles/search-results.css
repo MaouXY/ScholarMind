@@ -1,0 +1,219 @@
+/* 检索结果页（/student/search）：左侧辅助分类（学科 + 年度）、顶栏文献类别、结果列表 */
+
+.search-results-layout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.search-results-layout .search-panel {
+  position: sticky;
+  top: 84px;
+}
+
+.filter-chip-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.filter-chip-stack--year {
+  margin-bottom: 18px;
+}
+
+.filter-chip {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.4;
+  transition: border-color 150ms ease, background-color 150ms ease,
+    color 150ms ease;
+}
+
+.filter-chip:hover,
+.filter-chip:focus-visible {
+  border-color: #2161b5;
+  color: var(--color-accent);
+}
+
+.filter-chip.is-active {
+  border-color: #2161b5;
+  background: #eaf1fb;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.filter-heading {
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.clear-action {
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.results-column {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.type-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.type-tab {
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.type-tab:hover,
+.type-tab:focus-visible {
+  color: var(--color-accent);
+  background: #f0f4fa;
+}
+
+.type-tab.is-active {
+  background: #2161b5;
+  color: #fff;
+  font-weight: 600;
+}
+
+.search-bar-panel {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.search-bar__field {
+  flex: 0 0 118px;
+}
+
+.search-bar__field .el-select__wrapper {
+  min-height: 44px;
+  border-radius: 0;
+  box-shadow: none !important;
+  border-right: 1px solid var(--line);
+}
+
+.search-bar__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.search-bar__input .el-input__wrapper {
+  min-height: 44px;
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+.search-bar-panel .el-button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 26px;
+  border-radius: 0;
+}
+
+.result-stack > .results-heading {
+  padding: 0;
+}
+
+/* 结果条目：题名 / 作者 / 来源 · 类别 · 发表时间 / 被引 · 下载 */
+.result-row {
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.result-row:hover,
+.result-row:focus-within {
+  border-color: #2161b5;
+  background: #f8fafc;
+}
+
+.result-row__title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: #23466d;
+  overflow-wrap: anywhere;
+}
+
+.result-row__authors,
+.result-row__source {
+  margin: 0 0 6px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.result-row__divider {
+  margin: 0 8px;
+  color: var(--line);
+}
+
+.result-row__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+  color: var(--color-subtle);
+  font-size: 12px;
+}
+
+.results-pager {
+  margin-top: 20px;
+  justify-content: center;
+}
+
+@media (max-width: 1100px) {
+  .search-results-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .search-results-layout .search-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .search-bar-panel {
+    flex-wrap: wrap;
+  }
+
+  .search-bar__field {
+    flex: 1 1 100%;
+  }
+
+  .search-bar__field .el-select__wrapper {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .search-bar__input {
+    flex: 1 1 100%;
+  }
+
+  .search-bar-panel .el-button {
+    flex: 1 1 100%;
+  }
+
+  .result-row {
+    padding: 14px;
+  }
+}

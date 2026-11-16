@@ -14,17 +14,27 @@ const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/student/library',
+      redirect: '/student/home',
     },
     {
       path: '/',
       component: AppShell,
       children: [
         {
-          path: 'student/library',
-          name: 'student-library',
+          path: 'student/home',
+          name: 'student-home',
+          component: () => import('@/views/student/StudentLandingView.vue'),
+          meta: { role: 'STUDENT', title: '首页' },
+        },
+        {
+          path: 'student/search',
+          name: 'student-search',
           component: () => import('@/views/student/StudentHomeView.vue'),
-          meta: { role: 'STUDENT', title: '文献检索与阅读' },
+          meta: { role: 'STUDENT', title: '文献检索' },
+        },
+        {
+          path: 'student/library',
+          redirect: '/student/search',
         },
         {
           path: 'student/shelf',

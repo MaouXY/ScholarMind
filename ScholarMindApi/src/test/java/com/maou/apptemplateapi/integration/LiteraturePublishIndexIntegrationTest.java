@@ -114,10 +114,10 @@ class LiteraturePublishIndexIntegrationTest {
     void adminUpload_triggersIndexRebuildAutomatically() {
         authenticate(adminId, UserRole.ADMIN);
         LiteratureResponse created = literatureService.create(new LiteratureRequest(
-                "管理员上传后自动重建索引", "集成测试作者", "集成测试来源", "期刊论文",
+                "管理员上传后自动重建索引", "集成测试作者", "集成测试来源", "学术期刊",
                 categoryId, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1), "zh-CN", null,
                 "该文献用于验证管理员上传后自动重建索引，正文来自题录兜底，包含混合检索与 RRF 融合等关键词。",
-                "自动重建索引,RRF,集成测试"));
+                "自动重建索引,RRF,集成测试", null, 0));
         assertEquals(adminId, created.uploaderId(), "上传者应记为当前管理员");
 
         // AFTER_COMMIT 监听器在 create 返回前同步执行完毕，无需等待

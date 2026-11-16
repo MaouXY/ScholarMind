@@ -17,7 +17,7 @@ public class Literature {
     private String title;
     private String author;
     private String source;
-    /** 文献类别：期刊论文/会议论文/学位论文/图书/预印本/其他 */
+    /** 文献类别：学术期刊/学位论文（硕士）/学位论文（博士）/报纸 */
     private String literatureType;
     /** 发表时间（精确到日）。publish_year 列保留为历史存档，应用层不再读写。 */
     private LocalDate publishDate;
@@ -34,9 +34,13 @@ public class Literature {
     private Long fileSize;
     private String abstractText;
     private String aiSummary;
+    /** 参考文献列表原文，供「参考文献」检索维度匹配 */
+    private String referencesText;
     private String keywords;
     private Integer readCount;
     private Integer downloadCount;
+    /** 被引次数：由管理员手填，演示数据 */
+    private Integer citationCount;
     private Long reviewedBy;
     private LocalDateTime reviewedAt;
     private String rejectReason;

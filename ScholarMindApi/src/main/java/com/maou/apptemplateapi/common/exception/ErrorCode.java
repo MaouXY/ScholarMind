@@ -81,6 +81,8 @@ public enum ErrorCode {
     LITERATURE_FAVORITE_DUPLICATED(14105, "literature favorite duplicated"),
     LITERATURE_FAVORITE_NOT_FOUND(14106, "literature favorite not found"),
     LITERATURE_FILE_MISSING(14107, "literature file missing"),
+    FAVORITE_FOLDER_NOT_FOUND(14108, "favorite folder not found"),
+    FAVORITE_FOLDER_DUPLICATED(14109, "favorite folder name already exists"),
     READING_HISTORY_NOT_FOUND(14201, "reading history not found"),
     READING_PROGRESS_INVALID(14202, "reading progress invalid"),
     READING_NOTE_NOT_FOUND(14301, "reading note not found"),

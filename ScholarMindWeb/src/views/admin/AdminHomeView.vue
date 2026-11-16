@@ -30,6 +30,7 @@ import { emptyDashboard } from '@/utils/dashboard'
 import type { Id } from '@/types/auth'
 import type { AdminActiveUser, AdminDashboard } from '@/types/admin'
 import type { Literature, LiteratureCategory, LiteraturePayload } from '@/types/literature'
+import { LITERATURE_TYPE_OPTIONS } from '@/types/literature'
 import type { KnowledgeDocument, KnowledgeDocumentPayload } from '@/types/rag'
 
 const knowledgeDocs = ref<KnowledgeDocument[]>([])
@@ -47,12 +48,12 @@ const editingKnowledgeId = ref<Id | null>(null)
 
 // 上传文献（客户 2026-11-15 口径：文献改由管理员统一上传，上传即发布）
 const categories = ref<LiteratureCategory[]>([])
-const literatureTypeOptions = ['期刊论文', '会议论文', '学位论文', '图书', '预印本', '其他']
+const literatureTypeOptions = LITERATURE_TYPE_OPTIONS
 const uploadForm = reactive<LiteraturePayload>({
   title: '',
   author: '',
   source: '',
-  literatureType: '期刊论文',
+  literatureType: '学术期刊',
   categoryId: undefined,
   publishDate: '',
   onlinePublishDate: '',
@@ -60,6 +61,8 @@ const uploadForm = reactive<LiteraturePayload>({
   fileId: undefined,
   keywords: '',
   abstractText: '',
+  referencesText: '',
+  citationCount: 0,
 })
 const uploadingFile = ref(false)
 const uploadingName = ref('')
@@ -97,6 +100,9 @@ const overviewCards = computed(() => {
     { label: '原文文件', value: item.fileTotal, hint: '支持 PDF / 文本解析建索引', icon: UploadFilled },
   ]
 })
+
+/** 学科下拉只列一级门类（中图法 8 大类），二级细分不重复展示 */
+const subjectOptions = computed(() => categories.value.filter((item) => !item.parentId))
 
 function resetKnowledgeForm() {
   editingKnowledgeId.value = null
@@ -140,7 +146,7 @@ function resetUploadForm() {
     title: '',
     author: '',
     source: '',
-    literatureType: '期刊论文',
+    literatureType: '学术期刊',
     categoryId: undefined,
     publishDate: '',
     onlinePublishDate: '',
@@ -148,6 +154,8 @@ function resetUploadForm() {
     fileId: undefined,
     keywords: '',
     abstractText: '',
+    referencesText: '',
+    citationCount: 0,
   })
   uploadingName.value = ''
 }
@@ -203,6 +211,8 @@ async function submitUpload() {
       onlinePublishDate: uploadForm.onlinePublishDate || null,
       keywords: uploadForm.keywords?.trim() || undefined,
       abstractText: uploadForm.abstractText?.trim() || undefined,
+      referencesText: uploadForm.referencesText?.trim() || undefined,
+      citationCount: Number(uploadForm.citationCount ?? 0),
     })
     ElMessage.success(
       created.fileId ? '文献已上传，索引与 AI 摘要已自动生成' : '文献已上传，题录索引与 AI 摘要已自动生成',
@@ -450,7 +460,7 @@ onMounted(async () => {
             <el-form-item label="学科" required>
               <el-select v-model="uploadForm.categoryId" placeholder="选择学科">
                 <el-option
-                  v-for="category in categories"
+                  v-for="category in subjectOptions"
                   :key="category.id"
                   :label="displayCategoryName(category.name)"
                   :value="category.id"
@@ -479,6 +489,24 @@ onMounted(async () => {
           <el-form-item label="关键词">
             <el-input v-model="uploadForm.keywords" maxlength="512" placeholder="用英文逗号分隔" />
           </el-form-item>
+          <div class="filter-grid">
+            <el-form-item label="被引次数">
+              <el-input-number
+                v-model="uploadForm.citationCount"
+                :min="0"
+                :max="999999"
+                controls-position="right"
+              />
+            </el-form-item>
+            <el-form-item label="参考文献">
+              <el-input
+                v-model="uploadForm.referencesText"
+                type="textarea"
+                :rows="3"
+                placeholder="参考文献列表原文，用于「参考文献」检索维度"
+              />
+            </el-form-item>
+          </div>
           <el-form-item label="摘要">
             <el-input v-model="uploadForm.abstractText" type="textarea" :rows="4" placeholder="文献摘要" />
           </el-form-item>
@@ -578,6 +606,9 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="出版日期" width="130">
           <template #default="{ row }">{{ row.publishDate || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="被引" width="90" align="right">
+          <template #default="{ row }">{{ row.citationCount ?? 0 }}</template>
         </el-table-column>
         <el-table-column label="操作" width="110" align="right">
           <template #default="{ row }">

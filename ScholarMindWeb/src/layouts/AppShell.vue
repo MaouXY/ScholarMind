@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Cpu,
   DataAnalysis,
+  HomeFilled,
   Management,
   Reading,
   Star,
@@ -30,8 +31,14 @@ const menus = computed(() => [
     title: '用户空间',
     items: [
       {
-        label: '文献库',
-        path: '/student/library',
+        label: '首页',
+        path: '/student/home',
+        icon: HomeFilled,
+        role: 'STUDENT',
+      },
+      {
+        label: '文献检索',
+        path: '/student/search',
         icon: Reading,
         role: 'STUDENT',
       },

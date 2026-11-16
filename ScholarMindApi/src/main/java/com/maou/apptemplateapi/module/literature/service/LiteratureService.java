@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -46,8 +47,8 @@ public class LiteratureService {
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final String BIZ_TEMP = "TEMP";
     private static final String BIZ_LITERATURE_FILE = "LITERATURE_FILE";
-    /** 文献类别缺省值：历史数据与未填写时按期刊论文归档 */
-    private static final String DEFAULT_LITERATURE_TYPE = "期刊论文";
+    /** 文献类别缺省值：历史数据与未填写时按学术期刊归档 */
+    private static final String DEFAULT_LITERATURE_TYPE = "学术期刊";
 
     private final LiteratureMapper literatureMapper;
     private final LiteratureCategoryMapper categoryMapper;
@@ -60,25 +61,62 @@ public class LiteratureService {
      */
     private final ApplicationEventPublisher eventPublisher;
 
-    public PageResult<LiteratureResponse> list(long page, long size, String keyword, Long categoryId, String literatureType) {
-        Page<Literature> result = literatureMapper.selectPage(new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),
-                new LambdaQueryWrapper<Literature>()
-                        .eq(Literature::getDeleted, 0)
-                        .and(StringUtils.hasText(keyword), wrapper -> wrapper
-                                .like(Literature::getTitle, keyword)
-                                .or()
-                                .like(Literature::getAuthor, keyword)
-                                .or()
-                                .like(Literature::getKeywords, keyword)
-                                .or()
-                                .like(Literature::getAbstractText, keyword))
-                        .eq(categoryId != null, Literature::getCategoryId, categoryId)
-                        .eq(StringUtils.hasText(literatureType), Literature::getLiteratureType, literatureType)
-                        .orderByDesc(Literature::getUpdatedAt)
-                        .orderByDesc(Literature::getId));
+    /**
+     * 检索与列表。
+     *
+     * @param searchField 检索维度：theme（主题/标题）、keywords（关键词）、fulltext（全文）、
+     *                    author（作者）、abstract（摘要）、references（参考文献）、source（文献来源）；
+     *                    为空时对全部题录字段做全文匹配
+     * @param yearFrom    发表年度下限（含），按 publish_date 的年份比较
+     * @param yearTo      发表年度上限（含）
+     */
+    public PageResult<LiteratureResponse> list(long page, long size, String keyword, String searchField,
+                                               Long categoryId, String literatureType,
+                                               Integer yearFrom, Integer yearTo) {
+        LambdaQueryWrapper<Literature> wrapper = new LambdaQueryWrapper<Literature>()
+                .eq(Literature::getDeleted, 0)
+                .eq(categoryId != null, Literature::getCategoryId, categoryId)
+                .eq(StringUtils.hasText(literatureType), Literature::getLiteratureType, literatureType)
+                .ge(yearFrom != null, Literature::getPublishDate, yearStart(yearFrom))
+                .lt(yearTo != null, Literature::getPublishDate, yearStart(yearTo == null ? null : yearTo + 1));
+        if (StringUtils.hasText(keyword)) {
+            applyKeywordFilter(wrapper, keyword.trim(), searchField);
+        }
+        Page<Literature> result = literatureMapper.selectPage(
+                new Page<>(Math.max(page, 1), Math.min(Math.max(size, 1), 100)),
+                wrapper.orderByDesc(Literature::getPublishDate).orderByDesc(Literature::getId));
         Map<Long, String> categoryNames = categoryNames(result);
         return PageResult.of(result.getRecords().stream().map(item -> toResponse(item, categoryNames.get(item.getCategoryId()))).toList(),
                 result.getCurrent(), result.getSize(), result.getTotal());
+    }
+
+    /**
+     * 按检索维度拼接 keyword 条件。
+     * <p>「全文」维度覆盖标题、摘要、关键词与参考文献——原文正文分块在 literature_chunk 表，
+     * LIKE 无法跨表匹配，这里以题录中的可检索文本近似，命中后再由分块提供精确出处。</p>
+     */
+    private void applyKeywordFilter(LambdaQueryWrapper<Literature> wrapper, String keyword, String searchField) {
+        String field = StringUtils.hasText(searchField) ? searchField.trim().toLowerCase() : "";
+        switch (field) {
+            case "theme" -> wrapper.like(Literature::getTitle, keyword);
+            case "keywords" -> wrapper.like(Literature::getKeywords, keyword);
+            case "author" -> wrapper.like(Literature::getAuthor, keyword);
+            case "abstract" -> wrapper.like(Literature::getAbstractText, keyword);
+            case "references" -> wrapper.like(Literature::getReferencesText, keyword);
+            case "source" -> wrapper.like(Literature::getSource, keyword);
+            // fulltext 与不指定维度都退化为多字段匹配
+            default -> wrapper.and(inner -> inner
+                    .like(Literature::getTitle, keyword)
+                    .or().like(Literature::getAuthor, keyword)
+                    .or().like(Literature::getSource, keyword)
+                    .or().like(Literature::getKeywords, keyword)
+                    .or().like(Literature::getAbstractText, keyword)
+                    .or().like(Literature::getReferencesText, keyword));
+        }
+    }
+
+    private java.time.LocalDate yearStart(Integer year) {
+        return year == null ? null : java.time.LocalDate.of(year, 1, 1);
     }
 
     public LiteratureResponse detail(Long id) {
@@ -182,7 +220,9 @@ public class LiteratureService {
         literature.setOnlinePublishDate(request.onlinePublishDate());
         literature.setLanguage(StringUtils.hasText(request.language()) ? request.language() : "zh-CN");
         literature.setAbstractText(request.abstractText());
+        literature.setReferencesText(request.referencesText());
         literature.setKeywords(request.keywords());
+        literature.setCitationCount(request.citationCount() == null ? 0 : Math.max(request.citationCount(), 0));
         if (request.fileId() != null) {
             FileMetadata file = requireBindableFile(request.fileId(), operator, scenario);
             literature.setFileId(file.getId());
@@ -267,8 +307,24 @@ public class LiteratureService {
         return currentUser;
     }
 
+    /**
+     * 批量映射文献响应并补齐学科名称。
+     * <p>检索（语义 / 混合 / 自然语言）命中文献同样需要学科名，供结果页展示，因此抽出复用。</p>
+     */
+    List<LiteratureResponse> toResponses(List<Literature> literatures) {
+        if (literatures == null || literatures.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, String> names = categoryNames(literatures);
+        return literatures.stream().map(item -> toResponse(item, names.get(item.getCategoryId()))).toList();
+    }
+
     private Map<Long, String> categoryNames(Page<Literature> result) {
-        var categoryIds = result.getRecords().stream()
+        return categoryNames(result.getRecords());
+    }
+
+    private Map<Long, String> categoryNames(List<Literature> literatures) {
+        var categoryIds = literatures.stream()
                 .map(Literature::getCategoryId)
                 .filter(Objects::nonNull)
                 .distinct()
@@ -293,7 +349,10 @@ public class LiteratureService {
                 literature.getLiteratureType(), literature.getCategoryId(), categoryName,
                 literature.getPublishDate(), literature.getOnlinePublishDate(), literature.getLanguage(),
                 literature.getUploaderId(), literature.getFileId(), literature.getFileUrl(), literature.getFileType(),
-                literature.getFileSize(), literature.getAbstractText(), literature.getAiSummary(), literature.getKeywords(),
-                literature.getReadCount(), literature.getDownloadCount(), literature.getCreatedAt(), literature.getUpdatedAt());
+                literature.getFileSize(), literature.getAbstractText(), literature.getAiSummary(),
+                literature.getReferencesText(), literature.getKeywords(),
+                literature.getReadCount(), literature.getDownloadCount(),
+                literature.getCitationCount() == null ? 0 : literature.getCitationCount(),
+                literature.getCreatedAt(), literature.getUpdatedAt());
     }
 }
