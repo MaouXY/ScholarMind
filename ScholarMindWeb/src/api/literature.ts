@@ -11,6 +11,7 @@ import type {
   LiteratureCompareResult,
   LiteratureDetail,
   LiteratureDownloadTicket,
+  LiteraturePreviewTicket,
   LiteratureIndexResult,
   LiteraturePayload,
   LiteratureQuestionPayload,
@@ -153,6 +154,16 @@ export function listReadingHistory(params: { page: number; size: number }) {
 export function getLiteratureDownload(id: Id) {
   return request.get<never, LiteratureDownloadTicket>(
     `/literatures/${id}/download`,
+  )
+}
+
+/**
+ * 换取文献原文的预览票据（GET /literatures/{id}/preview）。
+ * 阅读页用它内嵌 iframe，不累加下载次数。
+ */
+export function getLiteraturePreview(id: Id) {
+  return request.get<never, LiteraturePreviewTicket>(
+    `/literatures/${id}/preview`,
   )
 }
 

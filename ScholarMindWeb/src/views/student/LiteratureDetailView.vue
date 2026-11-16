@@ -27,6 +27,7 @@ import {
 } from '@/api/citation'
 import { downloadCitationReferences, openLiteratureFile } from '@/utils/download'
 import { displayCategoryName, displayLiteratureType } from '@/utils/format'
+import AiSummaryPanel from '@/components/AiSummaryPanel.vue'
 import type {
   CitationRecord,
   CitationStyle,
@@ -74,8 +75,6 @@ const keywordTokens = computed(() =>
     .map((item) => item.trim())
     .filter(Boolean),
 )
-
-const summaryText = computed(() => literature.value?.aiSummary || '暂无 AI 摘要')
 
 const abstractParagraphs = computed(() =>
   (literature.value?.abstractText ?? '')
@@ -553,7 +552,7 @@ async function downloadOriginal() {
               <h3>AI 摘要</h3>
             </div>
           </div>
-          <p>{{ summaryText }}</p>
+          <AiSummaryPanel :summary="literature.aiSummary" density="compact" />
         </section>
 
         <section class="glass-panel" aria-label="摘要原文">

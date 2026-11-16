@@ -7,6 +7,7 @@ import com.maou.apptemplateapi.module.citation.service.CitationService;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureChunkResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureDetailResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureDownloadResponse;
+import com.maou.apptemplateapi.module.literature.dto.LiteraturePreviewResponse;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureRequest;
 import com.maou.apptemplateapi.module.literature.dto.LiteratureResponse;
 import com.maou.apptemplateapi.module.literature.service.LiteratureDetailService;
@@ -74,6 +75,14 @@ public class LiteratureController {
     @GetMapping("/{id}/download")
     public ApiResponse<LiteratureDownloadResponse> download(@PathVariable Long id) {
         return ApiResponse.success(literatureDownloadService.download(id));
+    }
+
+    /**
+     * 原文预览票据：阅读页用它在 iframe 内联渲染原文，不累加下载次数。
+     */
+    @GetMapping("/{id}/preview")
+    public ApiResponse<LiteraturePreviewResponse> preview(@PathVariable Long id) {
+        return ApiResponse.success(literatureDownloadService.preview(id));
     }
 
     @PostMapping

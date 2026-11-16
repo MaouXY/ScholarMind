@@ -1,51 +1,27 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Connection, Promotion, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, Promotion, Search } from '@element-plus/icons-vue'
 
-import { listCategories } from '@/api/literature'
-import { displayCategoryName } from '@/utils/format'
 import '@/styles/landing.css'
 import {
   SEARCH_FIELD_OPTIONS,
-  type LiteratureCategory,
   type LiteratureSearchField,
 } from '@/types/literature'
 
 const router = useRouter()
-
-/** 一级学科（中图法门类）：parentId 为空即顶级分类 */
-const subjects = ref<LiteratureCategory[]>([])
-const loadingSubjects = ref(false)
 
 const query = reactive({
   keyword: '',
   searchField: 'theme' as LiteratureSearchField,
 })
 
+/** 智能问答（RAG）是独立层级：默认收起，点大按钮再展开对话式输入 */
+const ragOpen = ref(false)
 const ragQuery = ref('')
 const ragMode = ref<'natural' | 'hybrid'>('natural')
 
-const activeSubject = ref<string>('')
-
-async function fetchSubjects() {
-  loadingSubjects.value = true
-  try {
-    const categories = await listCategories()
-    subjects.value = categories.filter((item) => !item.parentId)
-  } catch (error) {
-    console.error(
-      'landing subject load failed, scenario=literature-category-list',
-      error,
-    )
-    subjects.value = []
-  } finally {
-    loadingSubjects.value = false
-  }
-}
-
-/** 主检索框：带到结果页，由结果页负责真正查库 */
 function submitSearch() {
   const keyword = query.keyword.trim()
   if (!keyword) {
@@ -54,54 +30,39 @@ function submitSearch() {
   }
   router.push({
     path: '/student/search',
-    query: {
-      keyword,
-      searchField: query.searchField,
-      subject: activeSubject.value || undefined,
-    },
+    query: { keyword, searchField: query.searchField },
   })
 }
 
-/** 点学科卡片：直接按学科浏览，不强制带关键词 */
-function browseSubject(name: string) {
-  activeSubject.value = activeSubject.value === name ? '' : name
-  router.push({
-    path: '/student/search',
-    query: { subject: activeSubject.value || undefined },
-  })
+function toggleRag() {
+  ragOpen.value = !ragOpen.value
 }
 
-/** RAG 检索：走语义/混合检索，结果页以智能检索模式展示 */
 function submitRagSearch() {
   const text = ragQuery.value.trim()
   if (!text) {
-    ElMessage.warning('请输入想检索的问题或描述')
+    ElMessage.warning('请描述你要找的内容')
     return
   }
   router.push({
     path: '/student/search',
-    query: {
-      rag: text,
-      mode: ragMode.value,
-      subject: activeSubject.value || undefined,
-    },
+    query: { rag: text, mode: ragMode.value },
   })
 }
-
-onMounted(fetchSubjects)
 </script>
 
 <template>
   <section class="landing-page">
-    <header class="landing-hero">
-      <p class="landing-hero__eyebrow">学术文献智能检索</p>
-      <h2>从一个问题，找到该读的那篇文献</h2>
-      <p class="landing-hero__text">
-        支持主题、关键词、全文、作者、摘要、参考文献与文献来源七种检索维度，
-        也可以直接用自然语言描述需求，交给混合检索按语义相关性排序。
-      </p>
+    <div class="landing-stage">
+      <header class="landing-hero">
+        <p class="landing-hero__eyebrow">学术文献智能检索</p>
+        <h1>从一个问题，找到该读的那篇文献</h1>
+        <p class="landing-hero__text">
+          支持主题、关键词、全文、作者、摘要、参考文献与文献来源七种检索维度。
+        </p>
+      </header>
 
-      <div class="landing-search">
+      <form class="landing-search" @submit.prevent="submitSearch">
         <el-select
           v-model="query.searchField"
           class="landing-search__field"
@@ -130,74 +91,55 @@ onMounted(fetchSubjects)
           type="primary"
           size="large"
           class="landing-search__submit"
-          @click="submitSearch"
+          native-type="submit"
         >
           检索
         </el-button>
+      </form>
+
+      <!-- RAG 单独一个层级：显眼的大按钮，点开才展开对话式输入 -->
+      <div class="landing-rag">
+        <p class="landing-rag__divider"><span>或</span></p>
+        <button
+          type="button"
+          class="landing-rag__trigger"
+          :class="{ 'is-open': ragOpen }"
+          :aria-expanded="ragOpen"
+          @click="toggleRag"
+        >
+          <el-icon class="landing-rag__icon"><ChatDotRound /></el-icon>
+          <span class="landing-rag__label">
+            <strong>智能问答检索</strong>
+            <em>用一句话描述需求，向量 + BM25 召回，RRF 融合排序</em>
+          </span>
+          <el-icon class="landing-rag__caret"><Promotion /></el-icon>
+        </button>
+
+        <transition name="landing-rag">
+          <div v-if="ragOpen" class="landing-rag__panel">
+            <el-input
+              v-model="ragQuery"
+              type="textarea"
+              :rows="4"
+              resize="none"
+              placeholder="例如：想找把关键词检索和向量检索融合起来、并用 RRF 排序的中文论文"
+              @keyup.ctrl.enter="submitRagSearch"
+            />
+            <div class="landing-rag__footer">
+              <el-segmented
+                v-model="ragMode"
+                :options="[
+                  { label: '自然语言', value: 'natural' },
+                  { label: '混合检索', value: 'hybrid' },
+                ]"
+              />
+              <el-button type="primary" @click="submitRagSearch">
+                开始智能检索
+              </el-button>
+            </div>
+          </div>
+        </transition>
       </div>
-    </header>
-
-    <div class="landing-grid">
-      <section class="glass-panel landing-panel" aria-label="分类检索">
-        <div class="panel-heading">
-          <div>
-            <p class="panel__eyebrow">分类检索</p>
-            <h3>按学科浏览</h3>
-            <p class="panel-caption">
-              采用中图法一级门类；点击学科直接进入结果页，再次点击取消筛选。
-            </p>
-          </div>
-          <span class="landing-count">{{ subjects.length }} 个学科</span>
-        </div>
-        <div v-loading="loadingSubjects" class="subject-grid">
-          <button
-            v-for="item in subjects"
-            :key="item.id"
-            type="button"
-            class="subject-chip"
-            :class="{ 'is-active': activeSubject === displayCategoryName(item.name) }"
-            @click="browseSubject(displayCategoryName(item.name))"
-          >
-            {{ displayCategoryName(item.name) }}
-          </button>
-          <p v-if="!loadingSubjects && !subjects.length" class="landing-empty">
-            暂无学科分类，请先在管理端维护分类。
-          </p>
-        </div>
-      </section>
-
-      <section class="glass-panel landing-panel" aria-label="RAG 检索">
-        <div class="panel-heading">
-          <div>
-            <p class="panel__eyebrow">RAG 检索</p>
-            <h3>用一句话描述你要找的内容</h3>
-            <p class="panel-caption">
-              向量召回 + BM25 稀疏召回，再用 RRF 融合排序；适合「我想找……」这类模糊需求。
-            </p>
-          </div>
-          <el-icon class="landing-panel__icon"><Connection /></el-icon>
-        </div>
-        <el-input
-          v-model="ragQuery"
-          type="textarea"
-          :rows="4"
-          resize="none"
-          placeholder="例如：想找把关键词检索和向量检索融合起来、并用 RRF 排序的中文论文"
-        />
-        <div class="landing-rag-footer">
-          <el-segmented
-            v-model="ragMode"
-            :options="[
-              { label: '自然语言', value: 'natural' },
-              { label: '混合检索', value: 'hybrid' },
-            ]"
-          />
-          <el-button type="primary" plain @click="submitRagSearch">
-            <el-icon><Promotion /></el-icon>
-            智能检索
-          </el-button>
-        </div>
-      </section>
     </div>
   </section>
 </template>

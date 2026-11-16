@@ -293,6 +293,20 @@ export interface LiteratureDownloadTicket {
   downloadCount: number
 }
 
+/**
+ * 文献原文预览票据（GET /literatures/{id}/preview）。
+ * 与下载票据同构，但不累加下载次数；inlineViewable 表示浏览器能否直接内联渲染。
+ */
+export interface LiteraturePreviewTicket {
+  literatureId: Id
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  url: string
+  expiresInSeconds: number
+  inlineViewable: boolean
+}
+
 export interface LiteratureDetail {
   literature: Literature
   favorited: boolean

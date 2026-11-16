@@ -149,6 +149,61 @@
   text-align: justify;
 }
 
+/* 原文区：小节头 + iframe 内嵌原生渲染 */
+.reader-body__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.reader-body__section-head h2 {
+  margin: 0;
+}
+
+.reader-original__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.reader-original__frame-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.reader-original__frame {
+  width: 100%;
+  height: clamp(440px, 64vh, 920px);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.reader-original__placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 42px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: #fbfcfe;
+  text-align: center;
+}
+
+.reader-original__placeholder p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.reader-original__icon {
+  font-size: 26px;
+  color: #d19a2a;
+}
+
 .reader-chunks {
   display: grid;
   gap: 14px;
