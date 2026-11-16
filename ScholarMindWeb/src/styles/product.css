@@ -157,3 +157,66 @@
   .shelf-pager .el-pagination { justify-content: flex-start; flex-wrap: wrap; }
   .shelf-pager .el-pagination__sizes { display: none; }
 }
+
+/* ──────────────────────────────────────────────────────────────
+   登录页：保留全幅渐变 + 玻璃卡片。
+   product.css 的扁平化只针对工作台内的信息密度，登录页是门面，
+   被 :root{background:#f5f6f8} 一起刷平后只剩一片灰白，故在此单独恢复。
+   ────────────────────────────────────────────────────────────── */
+.login-page {
+  max-width: none;
+  margin: 0;
+  min-height: 100dvh;
+  grid-template-columns: minmax(0, 1.1fr) minmax(420px, 480px);
+  background:
+    radial-gradient(circle at 18% 10%, rgba(255, 255, 255, 0.92), transparent 26%),
+    radial-gradient(circle at 78% 2%, rgba(123, 182, 255, 0.34), transparent 24%),
+    radial-gradient(circle at 88% 86%, rgba(79, 214, 184, 0.2), transparent 24%),
+    linear-gradient(135deg, #eef4f8 0%, #f8fafc 44%, #e8eef7 100%);
+}
+.login-hero { padding: 64px; gap: 22px; }
+.login-hero__eyebrow {
+  margin: 0;
+  color: #176bff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.login-hero h1 { font-size: clamp(48px, 6vw, 82px); line-height: 1.02; color: #17202a; }
+.login-hero__text { max-width: 640px; font-size: 19px; line-height: 1.65; color: #566678; }
+.login-hero__chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.login-hero__chips span {
+  padding: 9px 13px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 24px rgba(36, 56, 86, 0.1);
+  color: #263547;
+  font-size: 14px;
+}
+.login-card {
+  margin: 32px;
+  align-self: center;
+  padding: 32px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 22px 68px rgba(36, 56, 86, 0.14);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+.login-card__header h2 { font-size: 26px; }
+.login-card__header p { margin: 8px 0 24px; color: #566678; }
+
+@media (max-width: 900px) {
+  .login-page { grid-template-columns: minmax(0, 1fr); }
+  .login-hero { padding: 56px 24px 0; }
+  .login-hero h1 { font-size: 40px; }
+  .login-card { margin: 24px 18px 32px; }
+}
+@media (max-width: 760px) {
+  .login-hero { padding: 36px 20px 0; }
+  .login-hero h1 { font-size: 34px; }
+  .login-hero__text { font-size: 16px; }
+  .login-card { margin: 20px 14px 28px; padding: 24px; }
+}

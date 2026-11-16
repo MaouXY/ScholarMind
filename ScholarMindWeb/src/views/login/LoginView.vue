@@ -52,16 +52,23 @@ async function handleLogin() {
 <template>
   <div class="login-page">
     <section class="login-hero">
+      <p class="login-hero__eyebrow">学术文献智能服务平台</p>
       <h1>ScholarMind</h1>
       <p class="login-hero__text">
-        文献检索与阅读助手
+        面向毕业论文与科研学习场景的 AI 文献检索、精读、摘要和知识库管理工作台。
       </p>
+      <div class="login-hero__chips" aria-label="平台能力">
+        <span>语义检索</span>
+        <span>论文精读</span>
+        <span>阅读笔记</span>
+        <span>知识库治理</span>
+      </div>
     </section>
 
     <section class="login-card" aria-label="登录表单">
       <div class="login-card__header">
         <h2>进入平台</h2>
-        <p>使用你的平台账号登录</p>
+        <p>使用你的平台账号登录。</p>
       </div>
 
       <RequestFailures />
