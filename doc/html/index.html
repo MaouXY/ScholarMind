@@ -48,31 +48,31 @@
 <body>
 <div class="wrap">
   <h1>ScholarMind 设计图表（可交互）</h1>
-  <p class="sub">按 2026-11-15《完善需求（改）》最终口径绘制：删除教师端，仅保留用户端与管理端；文献由管理员统一上传，用户端只读。四张图均为独立 HTML，可缩放、拖拽、切换视图与导出。</p>
+  <p class="sub">按 2026-11-16 检索门户改版口径绘制：用户端 6 页（首页检索 / 结果页 / 详情 / 三栏阅读 / 问答 / 书房）+ 管理端 6 页，文献由管理员统一上传、上传即发布，四类文献类别与中图法 8 个学科门类。四张图均为独立 HTML，可缩放、拖拽、切换视图与导出。</p>
 
   <div class="grid">
     <a class="card" href="01-新架构.html">
       <div class="no">01 · ARCHITECTURE</div>
       <div class="name">新架构总览</div>
-      <p class="desc">用户端 / 管理端 SPA、Spring Boot API、检索编排（BM25 + 向量 + RRF）、AI 能力，以及 MySQL / Milvus / RustFS / 火山方舟 Ark。</p>
+      <p class="desc">用户端 / 管理端 SPA、Spring Boot API、检索编排（7 维度筛选 + BM25 + 向量 + RRF）、AI 能力，以及 MySQL（15 张表）/ Milvus（185 分块）/ RustFS / 火山方舟 Ark。</p>
     </a>
 
     <a class="card" href="02-新业务流程.html">
       <div class="no">02 · WORKFLOW</div>
       <div class="name">新业务流程</div>
-      <p class="desc">用户端 6 环节 + 管理端 6 环节，含管理员上传即发布的文献入库闭环（9 字段 + 可选原文 → 自动建索引与摘要）与三种检索模式说明。</p>
+      <p class="desc">用户端 6 环节 + 管理端 6 环节：首页检索 → 结果页筛选 → 详情 → 三栏 HTML 阅读 → 书房；管理端上传即发布（9 字段 + 被引 + 参考文献 + 可选原文 → 自动建索引与摘要）。</p>
     </a>
 
     <a class="card" href="03-改造计划.html">
       <div class="no">03 · ROADMAP</div>
-      <div class="name">改造交付全景</div>
-      <p class="desc">第 1~4 批全部交付：界面收敛与报错修复、教师端下线、管理中心删除文献、检索演示数据、上传后自动重建索引与生成摘要、论文取数，以及管理员统一上传改版；仅剩 1 项待客户确认。</p>
+      <div class="name">检索门户改版交付全景</div>
+      <p class="desc">2026-11-16 五点需求全部交付：迁移 13 加被引与参考文献两列、收藏夹表与 8 个学科门类，种子 14 补 14 篇文献与 28 分块，检索 7 维度与年度区间，前端三页重写；回归 66 例全绿。</p>
     </a>
 
     <a class="card" href="04-页面功能地图.html">
       <div class="no">04 · PAGE MAP</div>
       <div class="name">页面功能地图</div>
-      <p class="desc">用户端 5 页与管理端 6 页的功能与跳转关系，标注每页的数据来源文件。</p>
+      <p class="desc">用户端 6 页与管理端 6 页的功能与跳转关系，标注每页的数据来源文件。</p>
     </a>
   </div>
 
