@@ -486,6 +486,22 @@ button {
   width: 100%;
 }
 
+/* el-segmented 的 block 模式会让两个选项等分宽度，
+   卡片内宽偏窄时「管理员」会被 text-overflow 截成「管…」，
+   这里给它足够的弹性宽度并保留文字完整性。 */
+.login-role-switch {
+  width: 100%;
+}
+
+.login-role-switch .el-segmented__item {
+  padding: 0 12px;
+}
+
+.login-role-switch .el-segmented__item-label {
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .spatial-hero {
   min-height: 252px;
   display: flex;

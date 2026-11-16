@@ -69,6 +69,7 @@ async function handleLogin() {
         <el-form-item label="角色">
           <el-segmented
             v-model="form.role"
+            class="login-role-switch"
             :options="[
               { label: '用户', value: 'STUDENT' },
               { label: '管理员', value: 'ADMIN' },
