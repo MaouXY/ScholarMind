@@ -30,6 +30,12 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 's3-common.ps1')
 
+# 后续使用文件绝对路径截取对象 key，源目录也必须先统一为绝对路径。
+$SourceDir = (Resolve-Path -LiteralPath $SourceDir).ProviderPath
+if (-not (Get-Item -LiteralPath $SourceDir).PSIsContainer) {
+    throw "源路径必须是目录：$SourceDir"
+}
+
 # ---- 定位包内的 rustfs 目录（允许目标桶名与源桶名不同） ----
 $candidateRoots = @(
     (Join-Path $SourceDir 'rustfs'),
