@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Document,
   Download,
-  Reading,
   Refresh,
   Star,
   StarFilled,
@@ -196,10 +195,6 @@ function openReader() {
 
 function goSearch() {
   router.push('/student/search')
-}
-
-function goShelf() {
-  router.push('/student/shelf')
 }
 
 onMounted(async () => {
@@ -557,14 +552,6 @@ async function downloadOriginal() {
               >
                 已收藏
               </el-button>
-
-              <el-button
-                :icon="Reading"
-                text
-                class="detail-side__link"
-                @click="goShelf"
-                >我的书房</el-button
-              >
             </div>
           </aside>
         </div>
@@ -861,13 +848,6 @@ async function downloadOriginal() {
 /* 主操作独占一整行，下载与收藏并排在下一行 */
 .detail-side__primary {
   grid-column: 1 / -1;
-}
-
-/* 我的书房是次要出口，占满整行并弱化为文字按钮 */
-.detail-side__link {
-  grid-column: 1 / -1;
-  color: var(--color-muted);
-  justify-content: center;
 }
 
 @media (max-width: 1180px) {
