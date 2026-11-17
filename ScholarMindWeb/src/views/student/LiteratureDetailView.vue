@@ -432,115 +432,141 @@ async function downloadOriginal() {
     </section>
 
     <template v-else>
-      <!-- 题录头部：题名 / 作者 / 来源 / 类别 / 时间 / 学科 -->
+      <!-- 题录头部：左栏读题录，右栏指标与操作 -->
       <section class="glass-panel" aria-label="文献信息">
-        <div class="reader-titlebar">
-          <div>
+        <div class="detail-head">
+          <div class="detail-head__main">
             <p class="panel__eyebrow">
               {{ displayCategoryName(literature.categoryName ?? null) }}
             </p>
             <h2>{{ literature.title }}</h2>
-          </div>
-          <el-tag :type="favorited ? 'success' : 'info'" effect="light">
-            {{ favorited ? '已收藏' : '未收藏' }}
-          </el-tag>
-        </div>
 
-        <div class="reader-meta">
-          <span>{{ literature.author || '作者未标注' }}</span>
-          <span>{{ literature.source || '来源未标注' }}</span>
-          <span>{{ literature.publishDate || '发表时间未标注' }}</span>
-          <span>在线公开 {{ literature.onlinePublishDate || '未标注' }}</span>
-        </div>
+            <p class="detail-head__line">
+              <span>{{ literature.author || '作者未标注' }}</span>
+              <em>·</em>
+              <span>{{ literature.source || '来源未标注' }}</span>
+            </p>
+            <p class="detail-head__line detail-head__line--muted">
+              <span>发表 {{ literature.publishDate || '未标注' }}</span>
+              <em>·</em>
+              <span>在线公开 {{ literature.onlinePublishDate || '未标注' }}</span>
+            </p>
 
-        <div class="reader-meta">
-          <el-tag size="small" effect="plain">{{
-            displayLiteratureType(literature.literatureType)
-          }}</el-tag>
-          <span>被引 {{ literature.citationCount ?? 0 }}</span>
-          <span>下载 {{ literature.downloadCount ?? 0 }}</span>
-          <span>阅读 {{ literature.readCount ?? 0 }}</span>
-        </div>
-
-        <section class="keyword-ribbon" v-if="keywordTokens.length">
-          <span v-for="token in keywordTokens" :key="token">{{ token }}</span>
-        </section>
-
-        <div class="detail-actions">
-          <el-button :icon="Document" type="primary" @click="openReader"
-            >HTML 阅读</el-button
-          >
-          <el-tooltip
-            :content="downloadDisabledReason"
-            :disabled="hasOriginalFile"
-            placement="top"
-          >
-            <span class="detail-action-wrap">
-              <el-button
-                :icon="Download"
-                type="primary"
-                plain
-                :loading="downloadLoading"
-                :disabled="!hasOriginalFile"
-                @click="downloadOriginal"
+            <div class="detail-head__tags">
+              <el-tag size="small" effect="plain">{{
+                displayLiteratureType(literature.literatureType)
+              }}</el-tag>
+              <span
+                v-for="token in keywordTokens"
+                :key="token"
+                class="detail-keyword"
+                >{{ token }}</span
               >
-                PDF 下载
-              </el-button>
-            </span>
-          </el-tooltip>
-
-          <el-popover
-            v-if="!favorited"
-            v-model:visible="folderPickerVisible"
-            placement="bottom-start"
-            :width="260"
-            trigger="click"
-          >
-            <template #reference>
-              <el-button :icon="Star" plain :loading="favoriteLoading">
-                收藏
-              </el-button>
-            </template>
-            <div class="favorite-picker">
-              <p class="favorite-picker__label">收藏到</p>
-              <el-select
-                v-model="selectedFolderId"
-                class="favorite-picker__select"
-                placeholder="默认收藏夹"
-                clearable
-              >
-                <el-option
-                  v-for="folder in folders"
-                  :key="folder.id"
-                  :label="folder.name"
-                  :value="folder.id"
-                />
-              </el-select>
-              <div class="favorite-picker__actions">
-                <el-button text @click="folderPickerVisible = false"
-                  >取消</el-button
-                >
-                <el-button
-                  type="primary"
-                  :loading="favoriteLoading"
-                  @click="confirmFavorite"
-                >
-                  确定收藏
-                </el-button>
-              </div>
             </div>
-          </el-popover>
-          <el-button
-            v-else
-            :icon="StarFilled"
-            plain
-            :loading="favoriteLoading"
-            @click="cancelFavorite"
-          >
-            取消收藏
-          </el-button>
+          </div>
 
-          <el-button :icon="Reading" plain @click="goShelf">我的书房</el-button>
+          <aside class="detail-side">
+            <dl class="detail-side__stats">
+              <div>
+                <dt>被引</dt>
+                <dd>{{ literature.citationCount ?? 0 }}</dd>
+              </div>
+              <div>
+                <dt>下载</dt>
+                <dd>{{ literature.downloadCount ?? 0 }}</dd>
+              </div>
+              <div>
+                <dt>阅读</dt>
+                <dd>{{ literature.readCount ?? 0 }}</dd>
+              </div>
+            </dl>
+
+            <div class="detail-side__actions">
+              <el-button
+                :icon="Document"
+                type="primary"
+                class="detail-side__primary"
+                @click="openReader"
+                >HTML 阅读</el-button
+              >
+              <el-tooltip
+                :content="downloadDisabledReason"
+                :disabled="hasOriginalFile"
+                placement="top"
+              >
+                <span class="detail-action-wrap">
+                  <el-button
+                    :icon="Download"
+                    :loading="downloadLoading"
+                    :disabled="!hasOriginalFile"
+                    @click="downloadOriginal"
+                  >
+                    PDF 下载
+                  </el-button>
+                </span>
+              </el-tooltip>
+
+              <el-popover
+                v-if="!favorited"
+                v-model:visible="folderPickerVisible"
+                placement="left-start"
+                :width="260"
+                trigger="click"
+              >
+                <template #reference>
+                  <el-button :icon="Star" :loading="favoriteLoading">
+                    收藏
+                  </el-button>
+                </template>
+                <div class="favorite-picker">
+                  <p class="favorite-picker__label">收藏到</p>
+                  <el-select
+                    v-model="selectedFolderId"
+                    class="favorite-picker__select"
+                    placeholder="默认收藏夹"
+                    clearable
+                  >
+                    <el-option
+                      v-for="folder in folders"
+                      :key="folder.id"
+                      :label="folder.name"
+                      :value="folder.id"
+                    />
+                  </el-select>
+                  <div class="favorite-picker__actions">
+                    <el-button text @click="folderPickerVisible = false"
+                      >取消</el-button
+                    >
+                    <el-button
+                      type="primary"
+                      :loading="favoriteLoading"
+                      @click="confirmFavorite"
+                    >
+                      确定收藏
+                    </el-button>
+                  </div>
+                </div>
+              </el-popover>
+              <el-button
+                v-else
+                :icon="StarFilled"
+                type="success"
+                plain
+                :loading="favoriteLoading"
+                @click="cancelFavorite"
+              >
+                已收藏
+              </el-button>
+
+              <el-button
+                :icon="Reading"
+                text
+                class="detail-side__link"
+                @click="goShelf"
+                >我的书房</el-button
+              >
+            </div>
+          </aside>
         </div>
       </section>
 
@@ -718,6 +744,147 @@ async function downloadOriginal() {
 /* 禁用态按钮不派发鼠标事件，用一层 span 承接 tooltip 的 hover */
 .detail-action-wrap {
   display: inline-flex;
+}
+
+/* 头部两栏：左题录、右指标与操作；窄屏时上下堆叠 */
+.detail-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 248px;
+  gap: 32px;
+  align-items: start;
+}
+
+.detail-head__main {
+  min-width: 0;
+}
+
+.detail-head__main h2 {
+  margin: 10px 0 14px;
+  font-size: 28px;
+  line-height: 1.32;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.detail-head__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.detail-head__line em {
+  color: var(--color-subtle);
+  font-style: normal;
+}
+
+.detail-head__line--muted {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.detail-head__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.detail-keyword {
+  padding: 2px 9px;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.detail-side {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(105, 132, 161, 0.14);
+  background: rgba(248, 250, 253, 0.9);
+}
+
+.detail-side__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  text-align: center;
+}
+
+.detail-side__stats div {
+  display: grid;
+  gap: 2px;
+}
+
+.detail-side__stats dt {
+  color: var(--color-subtle);
+  font-size: 12px;
+}
+
+.detail-side__stats dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-side__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.detail-side__actions :deep(.el-button) {
+  margin-left: 0;
+  width: 100%;
+}
+
+.detail-side__actions .detail-action-wrap {
+  display: flex;
+}
+
+.detail-side__actions .detail-action-wrap :deep(.el-button) {
+  width: 100%;
+}
+
+/* 主操作独占一整行，下载与收藏并排在下一行 */
+.detail-side__primary {
+  grid-column: 1 / -1;
+}
+
+/* 我的书房是次要出口，占满整行并弱化为文字按钮 */
+.detail-side__link {
+  grid-column: 1 / -1;
+  color: var(--color-muted);
+  justify-content: center;
+}
+
+@media (max-width: 1180px) {
+  .detail-head {
+    grid-template-columns: minmax(0, 1fr) 216px;
+    gap: 24px;
+  }
+}
+
+@media (max-width: 900px) {
+  .detail-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-head__main h2 {
+    font-size: 23px;
+  }
 }
 
 .favorite-picker__label {
