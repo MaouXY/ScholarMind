@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Promotion, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, Search } from '@element-plus/icons-vue'
 
 import '@/styles/landing.css'
 import {
@@ -12,38 +12,52 @@ import {
 
 const router = useRouter()
 
+/** 一个输入框两种用法：关键词检索走题录匹配，智能问答走 BM25 + 向量 + RRF */
+type LandingMode = 'keyword' | 'rag'
+
+const mode = ref<LandingMode>('keyword')
+
 const query = reactive({
-  keyword: '',
+  text: '',
   searchField: 'theme' as LiteratureSearchField,
 })
 
-/** 智能问答（RAG）是独立层级：默认收起，点大按钮再展开对话式输入 */
-const ragOpen = ref(false)
-const ragQuery = ref('')
+/** 智能问答的召回方式：自然语言意图解析 / 混合检索 */
 const ragMode = ref<'natural' | 'hybrid'>('natural')
 
-function submitSearch() {
-  const keyword = query.keyword.trim()
-  if (!keyword) {
-    ElMessage.warning('请输入检索词')
-    return
-  }
-  router.push({
-    path: '/student/search',
-    query: { keyword, searchField: query.searchField },
-  })
-}
+const placeholder = computed(() =>
+  mode.value === 'keyword'
+    ? '输入关键词，如：混合检索、知识图谱、RRF 融合'
+    : '用一句话描述需求，如：想找把关键词与向量检索融合、用 RRF 排序的中文论文',
+)
 
-function toggleRag() {
-  ragOpen.value = !ragOpen.value
-}
+const hint = computed(() =>
+  mode.value === 'keyword'
+    ? '按所选维度匹配题录字段，结果页可继续按学科、年度与文献类别筛选'
+    : '向量 + BM25 双路召回，RRF 融合排序，结果附引用片段',
+)
 
-function submitRagSearch() {
-  const text = ragQuery.value.trim()
+const submitLabel = computed(() =>
+  mode.value === 'keyword' ? '检索' : '智能检索',
+)
+
+function submit() {
+  const text = query.text.trim()
   if (!text) {
-    ElMessage.warning('请描述你要找的内容')
+    ElMessage.warning(
+      mode.value === 'keyword' ? '请输入检索词' : '请描述你要找的内容',
+    )
     return
   }
+
+  if (mode.value === 'keyword') {
+    router.push({
+      path: '/student/search',
+      query: { keyword: text, searchField: query.searchField },
+    })
+    return
+  }
+
   router.push({
     path: '/student/search',
     query: { rag: text, mode: ragMode.value },
@@ -58,12 +72,22 @@ function submitRagSearch() {
         <p class="landing-hero__eyebrow">学术文献智能检索</p>
         <h1>从一个问题，找到该读的那篇文献</h1>
         <p class="landing-hero__text">
-          支持主题、关键词、全文、作者、摘要、参考文献与文献来源七种检索维度。
+          一个输入框两种用法：按维度检索题录，或用一句自然语言让向量与关键词一起找。
         </p>
       </header>
 
-      <form class="landing-search" @submit.prevent="submitSearch">
+      <form class="landing-search" @submit.prevent="submit">
         <el-select
+          v-model="mode"
+          class="landing-search__mode"
+          aria-label="检索方式"
+        >
+          <el-option label="文献检索" value="keyword" />
+          <el-option label="智能问答" value="rag" />
+        </el-select>
+
+        <el-select
+          v-if="mode === 'keyword'"
           v-model="query.searchField"
           class="landing-search__field"
           aria-label="检索维度"
@@ -75,71 +99,43 @@ function submitRagSearch() {
             :value="field.value"
           />
         </el-select>
+        <el-select
+          v-else
+          v-model="ragMode"
+          class="landing-search__field"
+          aria-label="召回方式"
+        >
+          <el-option label="自然语言" value="natural" />
+          <el-option label="混合检索" value="hybrid" />
+        </el-select>
+
         <el-input
-          v-model="query.keyword"
+          v-model="query.text"
           class="landing-search__input"
           size="large"
           clearable
-          placeholder="输入关键词，如：混合检索、知识图谱、RRF 融合"
-          @keyup.enter="submitSearch"
+          :placeholder="placeholder"
+          @keyup.enter="submit"
         >
           <template #prefix>
-            <el-icon><Search /></el-icon>
+            <el-icon>
+              <ChatDotRound v-if="mode === 'rag'" />
+              <Search v-else />
+            </el-icon>
           </template>
         </el-input>
+
         <el-button
           type="primary"
           size="large"
           class="landing-search__submit"
           native-type="submit"
         >
-          检索
+          {{ submitLabel }}
         </el-button>
       </form>
 
-      <!-- RAG 单独一个层级：显眼的大按钮，点开才展开对话式输入 -->
-      <div class="landing-rag">
-        <p class="landing-rag__divider"><span>或</span></p>
-        <button
-          type="button"
-          class="landing-rag__trigger"
-          :class="{ 'is-open': ragOpen }"
-          :aria-expanded="ragOpen"
-          @click="toggleRag"
-        >
-          <el-icon class="landing-rag__icon"><ChatDotRound /></el-icon>
-          <span class="landing-rag__label">
-            <strong>智能问答检索</strong>
-            <em>用一句话描述需求，向量 + BM25 召回，RRF 融合排序</em>
-          </span>
-          <el-icon class="landing-rag__caret"><Promotion /></el-icon>
-        </button>
-
-        <transition name="landing-rag">
-          <div v-if="ragOpen" class="landing-rag__panel">
-            <el-input
-              v-model="ragQuery"
-              type="textarea"
-              :rows="4"
-              resize="none"
-              placeholder="例如：想找把关键词检索和向量检索融合起来、并用 RRF 排序的中文论文"
-              @keyup.ctrl.enter="submitRagSearch"
-            />
-            <div class="landing-rag__footer">
-              <el-segmented
-                v-model="ragMode"
-                :options="[
-                  { label: '自然语言', value: 'natural' },
-                  { label: '混合检索', value: 'hybrid' },
-                ]"
-              />
-              <el-button type="primary" @click="submitRagSearch">
-                开始智能检索
-              </el-button>
-            </div>
-          </div>
-        </transition>
-      </div>
+      <p class="landing-search__hint">{{ hint }}</p>
     </div>
   </section>
 </template>

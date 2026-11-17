@@ -1,4 +1,4 @@
-/* 首页（/student/home）：正中一个检索框 + 独立层级的智能问答入口
+/* 首页（/student/home）：正中一个检索栏，内部切换文献检索与智能问答
    与工作台扁平风格一致：白底、细边框、无投影。 */
 
 .landing-page {
@@ -35,11 +35,13 @@
 
 .landing-hero__text {
   margin: 0 auto;
-  max-width: 620px;
+  max-width: 640px;
   color: var(--color-muted);
   font-size: 14px;
   line-height: 1.8;
 }
+
+/* ---------- 检索栏：方式 + 维度 + 输入 + 按钮，拼成一体 ---------- */
 
 .landing-search {
   display: flex;
@@ -52,15 +54,30 @@
   background: #fff;
 }
 
-.landing-search__field {
-  flex: 0 0 128px;
+.landing-search__mode {
+  flex: 0 0 122px;
 }
 
+.landing-search__field {
+  flex: 0 0 118px;
+}
+
+.landing-search__mode .el-select__wrapper,
 .landing-search__field .el-select__wrapper {
   min-height: 52px;
   border-radius: 0;
   box-shadow: none !important;
   border-right: 1px solid var(--line);
+}
+
+/* 检索方式比维度更重，用底色区分 */
+.landing-search__mode .el-select__wrapper {
+  background: #f6f9fd;
+}
+
+.landing-search__mode .el-select__placeholder {
+  color: #1b4c8a;
+  font-weight: 600;
 }
 
 .landing-search__input {
@@ -78,131 +95,16 @@
 .landing-search__submit {
   flex: 0 0 auto;
   min-height: 52px;
-  padding: 0 34px;
+  padding: 0 30px;
   border-radius: 0;
   font-size: 15px;
 }
 
-/* ---------- RAG：单独一个层级 ---------- */
-
-.landing-rag {
-  margin-top: 28px;
-}
-
-.landing-rag__divider {
-  position: relative;
-  margin: 0 0 20px;
-  text-align: center;
-}
-
-.landing-rag__divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  border-top: 1px solid var(--line);
-}
-
-.landing-rag__divider span {
-  position: relative;
-  padding: 0 14px;
-  background: var(--surface, #f5f7fa);
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.landing-rag__trigger {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: 18px 22px;
-  border: 1px solid #cbddf5;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #eef5ff 0%, #f8fbff 100%);
-  color: #1b4c8a;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 150ms ease, box-shadow 150ms ease,
-    transform 150ms ease;
-}
-
-.landing-rag__trigger:hover,
-.landing-rag__trigger:focus-visible {
-  border-color: #2161b5;
-  box-shadow: 0 4px 16px rgba(33, 97, 181, 0.12);
-}
-
-.landing-rag__trigger.is-open {
-  border-color: #2161b5;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-.landing-rag__icon {
-  flex: 0 0 auto;
-  font-size: 26px;
-  color: #2161b5;
-}
-
-.landing-rag__label {
-  display: grid;
-  gap: 4px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.landing-rag__label strong {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.landing-rag__label em {
-  color: #4a6b93;
+.landing-search__hint {
+  margin: 12px 0 0;
+  color: var(--color-subtle);
   font-size: 12.5px;
-  font-style: normal;
-  line-height: 1.5;
-}
-
-.landing-rag__caret {
-  flex: 0 0 auto;
-  font-size: 18px;
-  color: #2161b5;
-  transition: transform 180ms ease;
-}
-
-.landing-rag__trigger.is-open .landing-rag__caret {
-  transform: rotate(90deg);
-}
-
-.landing-rag__panel {
-  display: grid;
-  gap: 14px;
-  padding: 18px 22px 20px;
-  border: 1px solid #2161b5;
-  border-top: 0;
-  border-radius: 0 0 10px 10px;
-  background: #fff;
-}
-
-.landing-rag__footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.landing-rag-enter-active,
-.landing-rag-leave-active {
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.landing-rag-enter-from,
-.landing-rag-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
+  text-align: center;
 }
 
 @media (max-width: 760px) {
@@ -220,13 +122,19 @@
     margin-top: 24px;
   }
 
+  .landing-search__mode,
   .landing-search__field {
-    flex: 1 1 100%;
+    flex: 1 1 50%;
+    min-width: 0;
+  }
+
+  .landing-search__mode .el-select__wrapper,
+  .landing-search__field .el-select__wrapper {
+    border-bottom: 1px solid var(--line);
   }
 
   .landing-search__field .el-select__wrapper {
     border-right: 0;
-    border-bottom: 1px solid var(--line);
   }
 
   .landing-search__input {
@@ -237,19 +145,7 @@
     flex: 1 1 100%;
   }
 
-  .landing-rag__trigger {
-    padding: 14px 16px;
-  }
-
-  .landing-rag__label strong {
-    font-size: 15px;
-  }
-
-  .landing-rag__footer {
-    justify-content: stretch;
-  }
-
-  .landing-rag__footer > * {
-    flex: 1 1 100%;
+  .landing-search__hint {
+    text-align: left;
   }
 }
