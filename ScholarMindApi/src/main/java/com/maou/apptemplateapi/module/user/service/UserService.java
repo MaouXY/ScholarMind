@@ -35,6 +35,12 @@ public class UserService {
     @Transactional
     public AuthResponse register(RegisterRequest request) {
         String role = StringUtils.hasText(request.role()) ? request.role() : UserRole.STUDENT.name();
+        // 前端注册表单需要输入两次密码，这里再做一次服务端一致性校验（可选字段，兼容旧调用方）
+        if (StringUtils.hasText(request.confirmPassword())
+                && !request.password().equals(request.confirmPassword())) {
+            log.warn("user register rejected, scenario=user-register, reason=password-not-matched, username={}", request.username());
+            throw new BusinessException(ErrorCode.USER_PASSWORD_INVALID, "两次输入的密码不一致");
+        }
         if (existsUsername(request.username(), null)) {
             log.warn("user register rejected, scenario=user-register, reason=username-duplicated, username={}", request.username());
             throw new BusinessException(ErrorCode.USER_DUPLICATED);
@@ -42,7 +48,8 @@ public class UserService {
         UserAccount account = new UserAccount();
         account.setUsername(request.username());
         account.setPasswordHash(passwordEncoder.encode(request.password()));
-        account.setNickname(request.nickname());
+        // 昵称缺省时用账号名兜底，注册表单只需账号 + 两次密码
+        account.setNickname(StringUtils.hasText(request.nickname()) ? request.nickname() : request.username());
         account.setEmail(request.email());
         account.setRole(role);
         account.setStatus(STATUS_ENABLED);

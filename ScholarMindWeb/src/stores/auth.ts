@@ -1,8 +1,13 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import type { LoginForm, UserRole } from '@/types/auth'
-import { loginApi } from '@/api/auth'
+import type {
+  LoginForm,
+  LoginResponse,
+  RegisterForm,
+  UserRole,
+} from '@/types/auth'
+import { loginApi, registerApi } from '@/api/auth'
 import {
   clearToken,
   getStoredUser,
@@ -29,13 +34,21 @@ export const useAuthStore = defineStore('auth', () => {
     return '/student/home'
   })
 
-  async function login(payload: LoginForm) {
-    const response = await loginApi(payload)
+  function applySession(response: LoginResponse) {
     token.value = response.token
     role.value = normalizeRole(response.user.role)
     displayName.value = response.user.nickname || response.user.username
     setToken(response.token)
     setStoredUser({ ...response.user, role: role.value })
+  }
+
+  async function login(payload: LoginForm) {
+    applySession(await loginApi(payload))
+  }
+
+  // 注册成功后后端直接下发 token，等同于注册即登录
+  async function register(payload: RegisterForm) {
+    applySession(await registerApi(payload))
   }
 
   function logout() {
@@ -51,6 +64,7 @@ export const useAuthStore = defineStore('auth', () => {
     displayName,
     defaultRoute,
     login,
+    register,
     logout,
   }
 })
