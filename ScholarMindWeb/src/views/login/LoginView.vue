@@ -104,6 +104,9 @@ async function handleLogin() {
         >
           进入工作台
         </el-button>
+        <el-button class="login-card__submit" text @click="router.push('/register')">
+          没有账号？立即注册
+        </el-button>
       </el-form>
     </section>
   </div>

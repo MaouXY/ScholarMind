@@ -9,6 +9,12 @@ export interface LoginForm {
   role: UserRole
 }
 
+export interface RegisterForm {
+  username: string
+  password: string
+  confirmPassword: string
+}
+
 export interface UserProfile {
   id: Id
   username: string
